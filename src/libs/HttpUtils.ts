@@ -5,11 +5,15 @@ import CONST from '@src/CONST';
 import ONYXKEYS from '@src/ONYXKEYS';
 import type {RequestType} from '@src/types/onyx/Request';
 import type Response from '@src/types/onyx/Response';
-import * as NetworkActions from './actions/Network';
-import * as UpdateRequired from './actions/UpdateRequired';
+import {setTimeSkew} from './actions/Network';
+import {alertUser} from './actions/UpdateRequired';
 import {READ_COMMANDS, SIDE_EFFECT_REQUEST_COMMANDS, WRITE_COMMANDS} from './API/types';
-import * as ApiUtils from './ApiUtils';
+import {getCommandURL} from './ApiUtils';
 import HttpsError from './Errors/HttpsError';
+import getPlatform from './getPlatform';
+
+const platform = getPlatform();
+const isNativePlatform = platform === CONST.PLATFORM.ANDROID || platform === CONST.PLATFORM.IOS;
 
 let shouldFailAllRequests = false;
 let shouldForceOffline = false;
@@ -37,9 +41,6 @@ const abortControllerMap = new Map<AbortCommand, AbortController>();
 abortControllerMap.set(ABORT_COMMANDS.All, new AbortController());
 abortControllerMap.set(ABORT_COMMANDS.SearchForReports, new AbortController());
 
-// Some existing old commands (6+ years) exempted from the auth writes count check
-const exemptedCommandsWithAuthWrites: string[] = ['SetWorkspaceAutoReportingFrequency'];
-
 /**
  * The API commands that require the skew calculation
  */
@@ -61,6 +62,11 @@ function processHTTPRequest(url: string, method: RequestType = 'get', body: Form
         signal: abortSignal,
         method,
         body,
+        // On Web fetch already defaults to 'omit' for credentials, but it seems that this is not the case for the ReactNative implementation
+        // so to avoid sending cookies with the request we set it to 'omit' explicitly
+        // this avoids us sending specially the expensifyWeb cookie, which makes a CSRF token required
+        // more on that here: https://stackoverflowteams.com/c/expensify/questions/93
+        credentials: 'omit',
     })
         .then((response) => {
             // We are calculating the skew to minimize the delay when posting the messages
@@ -71,7 +77,7 @@ function processHTTPRequest(url: string, method: RequestType = 'get', body: Form
                 const endTime = new Date().valueOf();
                 const latency = (endTime - startTime) / 2;
                 const skew = serverTime - startTime + latency;
-                NetworkActions.setTimeSkew(dateHeaderValue ? skew : 0);
+                setTimeSkew(dateHeaderValue ? skew : 0);
             }
             return response;
         })
@@ -133,19 +139,16 @@ function processHTTPRequest(url: string, method: RequestType = 'get', body: Form
                 });
             }
 
-            if (response.jsonCode === CONST.JSON_CODE.MANY_WRITES_ERROR && !exemptedCommandsWithAuthWrites.includes(response.data?.phpCommandName ?? '')) {
-                if (response.data) {
-                    const {phpCommandName, authWriteCommands} = response.data;
-                    // eslint-disable-next-line max-len
-                    const message = `The API call (${phpCommandName}) did more Auth write requests than allowed. Count ${authWriteCommands.length}, commands: ${authWriteCommands.join(
-                        ', ',
-                    )}. Check the APIWriteCommands class in Web-Expensify`;
-                    alert('Too many auth writes', message);
-                }
+            if (response.data && (response.data?.authWriteCommands?.length ?? 0)) {
+                const {phpCommandName, authWriteCommands} = response.data;
+                const message = `The API command ${phpCommandName} is doing too many Auth writes. Count ${authWriteCommands.length}, commands: ${authWriteCommands.join(
+                    ', ',
+                )}. If you modified this command, you MUST refactor it to remove the extra Auth writes. Otherwise, update the allowed write count in Web-Expensify APIWriteCommands.`;
+                alert('Too many auth writes', message);
             }
             if (response.jsonCode === CONST.JSON_CODE.UPDATE_REQUIRED) {
                 // Trigger a modal and disable the app as the user needs to upgrade to the latest minimum version to continue
-                UpdateRequired.alertUser();
+                alertUser();
             }
             return response as Promise<Response>;
         });
@@ -161,16 +164,47 @@ function processHTTPRequest(url: string, method: RequestType = 'get', body: Form
 function xhr(command: string, data: Record<string, unknown>, type: RequestType = CONST.NETWORK.METHOD.POST, shouldUseSecure = false): Promise<Response> {
     const formData = new FormData();
     Object.keys(data).forEach((key) => {
-        if (typeof data[key] === 'undefined') {
+        const value = data[key];
+        if (value === undefined) {
             return;
         }
-        formData.append(key, data[key] as string | Blob);
+        validateFormDataParameter(command, key, value);
+        formData.append(key, value as string | Blob);
     });
 
-    const url = ApiUtils.getCommandURL({shouldUseSecure, command});
+    const url = getCommandURL({shouldUseSecure, command});
 
     const abortSignalController = data.canCancel ? abortControllerMap.get(command as AbortCommand) ?? abortControllerMap.get(ABORT_COMMANDS.All) : undefined;
     return processHTTPRequest(url, type, formData, abortSignalController?.signal);
+}
+
+/**
+ * Ensures no value of type `object` other than null, Blob, its subclasses, or {uri: string} (native platforms only) is passed to XMLHttpRequest.
+ * Otherwise, it will be incorrectly serialized as `[object Object]` and cause an error on Android.
+ * See https://github.com/Expensify/App/issues/45086
+ */
+function validateFormDataParameter(command: string, key: string, value: unknown) {
+    // eslint-disable-next-line @typescript-eslint/no-shadow
+    const isValid = (value: unknown, isTopLevel: boolean): boolean => {
+        if (value === null || typeof value !== 'object') {
+            return true;
+        }
+        if (Array.isArray(value)) {
+            return value.every((element) => isValid(element, false));
+        }
+        if (isTopLevel) {
+            // Native platforms only require the value to include the `uri` property.
+            // Optionally, it can also have a `name` and `type` props.
+            // On other platforms, the value must be an instance of `Blob`.
+            return isNativePlatform ? 'uri' in value && !!value.uri : value instanceof Blob;
+        }
+        return false;
+    };
+
+    if (!isValid(value, true)) {
+        // eslint-disable-next-line no-console
+        console.warn(`An unsupported value was passed to command '${command}' (parameter: '${key}'). Only Blob and primitive types are allowed.`);
+    }
 }
 
 function cancelPendingRequests(command: AbortCommand = ABORT_COMMANDS.All) {

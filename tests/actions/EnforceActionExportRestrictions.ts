@@ -14,6 +14,16 @@ describe('ReportUtils', () => {
         expect(ReportUtils.getParentReport).toBeUndefined();
     });
 
+    it('does not export getReport', () => {
+        // @ts-expect-error the test is asserting that it's undefined, so the TS error is normal
+        expect(ReportUtils.getReport).toBeUndefined();
+    });
+
+    it('does not export getReportTransactions', () => {
+        // @ts-expect-error the test is asserting that it's undefined, so the TS error is normal
+        expect(ReportUtils.getReportTransactions).toBeUndefined();
+    });
+
     it('does not export isOneTransactionReport', () => {
         // @ts-expect-error the test is asserting that it's undefined, so the TS error is normal
         expect(ReportUtils.isOneTransactionReport).toBeUndefined();
@@ -53,6 +63,11 @@ describe('Task', () => {
     it('does not export getParentReport', () => {
         // @ts-expect-error the test is asserting that it's undefined, so the TS error is normal
         expect(Task.getParentReport).toBeUndefined();
+    });
+
+    it('does not export getParentReportAction', () => {
+        // @ts-expect-error the test is asserting that it's undefined, so the TS error is normal
+        expect(Task.getParentReportAction).toBeUndefined();
     });
 });
 

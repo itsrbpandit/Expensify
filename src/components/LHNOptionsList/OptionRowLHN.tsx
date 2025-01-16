@@ -1,19 +1,22 @@
 import {useFocusEffect} from '@react-navigation/native';
-import React, {useCallback, useRef, useState} from 'react';
+import React, {useCallback, useMemo, useRef, useState} from 'react';
 import type {GestureResponderEvent, ViewStyle} from 'react-native';
 import {StyleSheet, View} from 'react-native';
 import {useOnyx} from 'react-native-onyx';
-import Badge from '@components/Badge';
 import DisplayNames from '@components/DisplayNames';
 import Hoverable from '@components/Hoverable';
 import Icon from '@components/Icon';
 import * as Expensicons from '@components/Icon/Expensicons';
 import MultipleAvatars from '@components/MultipleAvatars';
 import OfflineWithFeedback from '@components/OfflineWithFeedback';
+import {useSession} from '@components/OnyxProvider';
 import PressableWithSecondaryInteraction from '@components/PressableWithSecondaryInteraction';
+import {useProductTrainingContext} from '@components/ProductTrainingContext';
 import SubscriptAvatar from '@components/SubscriptAvatar';
 import Text from '@components/Text';
 import Tooltip from '@components/Tooltip';
+import EducationalTooltip from '@components/Tooltip/EducationalTooltip';
+import useIsCurrentRouteHome from '@hooks/useIsCurrentRouteHome';
 import useLocalize from '@hooks/useLocalize';
 import useResponsiveLayout from '@hooks/useResponsiveLayout';
 import useStyleUtils from '@hooks/useStyleUtils';
@@ -26,8 +29,10 @@ import Parser from '@libs/Parser';
 import Performance from '@libs/Performance';
 import ReportActionComposeFocusManager from '@libs/ReportActionComposeFocusManager';
 import * as ReportUtils from '@libs/ReportUtils';
-import * as SubscriptionUtils from '@libs/SubscriptionUtils';
 import * as ReportActionContextMenu from '@pages/home/report/ContextMenu/ReportActionContextMenu';
+import FreeTrial from '@pages/settings/Subscription/FreeTrial';
+import variables from '@styles/variables';
+import Timing from '@userActions/Timing';
 import CONST from '@src/CONST';
 import ONYXKEYS from '@src/ONYXKEYS';
 import {isEmptyObject} from '@src/types/utils/EmptyObject';
@@ -38,20 +43,38 @@ function OptionRowLHN({reportID, isFocused = false, onSelectRow = () => {}, opti
     const styles = useThemeStyles();
     const popoverAnchor = useRef<View>(null);
     const StyleUtils = useStyleUtils();
-    const isFocusedRef = useRef(true);
+    const [isScreenFocused, setIsScreenFocused] = useState(false);
     const {shouldUseNarrowLayout} = useResponsiveLayout();
 
     // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
     const [report] = useOnyx(`${ONYXKEYS.COLLECTION.REPORT}${optionItem?.reportID || -1}`);
+    const [activePolicyID] = useOnyx(ONYXKEYS.NVP_ACTIVE_POLICY_ID);
+    const [introSelected] = useOnyx(ONYXKEYS.NVP_INTRO_SELECTED);
+    const session = useSession();
+    const shouldShowWokspaceChatTooltip = ReportUtils.isPolicyExpenseChat(report) && activePolicyID === report?.policyID && session?.accountID === report?.ownerAccountID;
+    const isOnboardingGuideAssigned = introSelected?.choice === CONST.ONBOARDING_CHOICES.MANAGE_TEAM && !session?.email?.includes('+');
+    const shouldShowGetStartedTooltip = isOnboardingGuideAssigned ? ReportUtils.isAdminRoom(report) : ReportUtils.isConciergeChatReport(report);
+    const isActiveRouteHome = useIsCurrentRouteHome();
+
+    const {tooltipToRender, shouldShowTooltip} = useMemo(() => {
+        const tooltip = shouldShowGetStartedTooltip ? CONST.PRODUCT_TRAINING_TOOLTIP_NAMES.CONCEIRGE_LHN_GBR : CONST.PRODUCT_TRAINING_TOOLTIP_NAMES.LHN_WORKSPACE_CHAT_TOOLTIP;
+        const shouldShowTooltips = shouldShowWokspaceChatTooltip || shouldShowGetStartedTooltip;
+        const shouldTooltipBeVisible = shouldUseNarrowLayout ? isScreenFocused && isActiveRouteHome : isActiveRouteHome;
+
+        // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+        return {tooltipToRender: tooltip, shouldShowTooltip: shouldShowTooltips && shouldTooltipBeVisible};
+    }, [shouldShowGetStartedTooltip, shouldShowWokspaceChatTooltip, isScreenFocused, shouldUseNarrowLayout, isActiveRouteHome]);
+
+    const {shouldShowProductTrainingTooltip, renderProductTrainingTooltip, hideProductTrainingTooltip} = useProductTrainingContext(tooltipToRender, shouldShowTooltip);
 
     const {translate} = useLocalize();
     const [isContextMenuActive, setIsContextMenuActive] = useState(false);
 
     useFocusEffect(
         useCallback(() => {
-            isFocusedRef.current = true;
+            setIsScreenFocused(true);
             return () => {
-                isFocusedRef.current = false;
+                setIsScreenFocused(false);
             };
         }, []),
     );
@@ -100,7 +123,7 @@ function OptionRowLHN({reportID, isFocused = false, onSelectRow = () => {}, opti
      * @param [event] - A press event.
      */
     const showPopover = (event: MouseEvent | GestureResponderEvent) => {
-        if (!isFocusedRef.current && shouldUseNarrowLayout) {
+        if (!isScreenFocused && shouldUseNarrowLayout) {
             return;
         }
         setIsContextMenuActive(true);
@@ -129,10 +152,9 @@ function OptionRowLHN({reportID, isFocused = false, onSelectRow = () => {}, opti
     const statusContent = formattedDate ? `${statusText ? `${statusText} ` : ''}(${formattedDate})` : statusText;
     const isStatusVisible = !!emojiCode && ReportUtils.isOneOnOneChat(!isEmptyObject(report) ? report : undefined);
 
-    const isGroupChat = ReportUtils.isGroupChat(optionItem) || ReportUtils.isDeprecatedGroupDM(optionItem);
-
-    const fullTitle = isGroupChat ? ReportUtils.getGroupChatName(undefined, false, report) : optionItem.text;
     const subscriptAvatarBorderColor = isFocused ? focusedBackgroundColor : theme.sidebar;
+    const firstIcon = optionItem.icons?.at(0);
+
     return (
         <OfflineWithFeedback
             pendingAction={optionItem.pendingAction}
@@ -140,176 +162,191 @@ function OptionRowLHN({reportID, isFocused = false, onSelectRow = () => {}, opti
             shouldShowErrorMessages={false}
             needsOffscreenAlphaCompositing
         >
-            <Hoverable>
-                {(hovered) => (
-                    <PressableWithSecondaryInteraction
-                        ref={popoverAnchor}
-                        onPress={(event) => {
-                            Performance.markStart(CONST.TIMING.OPEN_REPORT);
+            <EducationalTooltip
+                // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+                shouldRender={shouldShowProductTrainingTooltip}
+                renderTooltipContent={renderProductTrainingTooltip}
+                anchorAlignment={{
+                    horizontal: shouldShowWokspaceChatTooltip ? CONST.MODAL.ANCHOR_ORIGIN_HORIZONTAL.LEFT : CONST.MODAL.ANCHOR_ORIGIN_HORIZONTAL.RIGHT,
+                    vertical: CONST.MODAL.ANCHOR_ORIGIN_VERTICAL.TOP,
+                }}
+                shiftHorizontal={shouldShowWokspaceChatTooltip ? variables.workspaceLHNtooltipShiftHorizontal : variables.gbrTooltipShiftHorizontal}
+                shiftVertical={shouldShowWokspaceChatTooltip ? 0 : variables.composerTooltipShiftVertical}
+                wrapperStyle={styles.productTrainingTooltipWrapper}
+            >
+                <View>
+                    <Hoverable>
+                        {(hovered) => (
+                            <PressableWithSecondaryInteraction
+                                ref={popoverAnchor}
+                                onPress={(event) => {
+                                    Performance.markStart(CONST.TIMING.OPEN_REPORT);
+                                    Timing.start(CONST.TIMING.OPEN_REPORT);
 
-                            event?.preventDefault();
-                            // Enable Composer to focus on clicking the same chat after opening the context menu.
-                            ReportActionComposeFocusManager.focus();
-                            onSelectRow(optionItem, popoverAnchor);
-                        }}
-                        onMouseDown={(event) => {
-                            // Allow composer blur on right click
-                            if (!event) {
-                                return;
-                            }
-
-                            // Prevent composer blur on left click
-                            event.preventDefault();
-                        }}
-                        testID={optionItem.reportID}
-                        onSecondaryInteraction={(event) => {
-                            showPopover(event);
-                            // Ensure that we blur the composer when opening context menu, so that only one component is focused at a time
-                            if (DomUtils.getActiveElement()) {
-                                (DomUtils.getActiveElement() as HTMLElement | null)?.blur();
-                            }
-                        }}
-                        withoutFocusOnSecondaryInteraction
-                        activeOpacity={0.8}
-                        style={[
-                            styles.flexRow,
-                            styles.alignItemsCenter,
-                            styles.justifyContentBetween,
-                            styles.sidebarLink,
-                            styles.sidebarLinkInnerLHN,
-                            StyleUtils.getBackgroundColorStyle(theme.sidebar),
-                            isFocused ? styles.sidebarLinkActive : null,
-                            (hovered || isContextMenuActive) && !isFocused ? styles.sidebarLinkHover : null,
-                        ]}
-                        role={CONST.ROLE.BUTTON}
-                        accessibilityLabel={translate('accessibilityHints.navigatesToChat')}
-                        onLayout={onLayout}
-                        needsOffscreenAlphaCompositing={(optionItem?.icons?.length ?? 0) >= 2}
-                    >
-                        <View style={sidebarInnerRowStyle}>
-                            <View style={[styles.flexRow, styles.alignItemsCenter]}>
-                                {!!optionItem.icons?.length &&
-                                    (optionItem.shouldShowSubscript ? (
-                                        <SubscriptAvatar
-                                            backgroundColor={hovered && !isFocused ? hoveredBackgroundColor : subscriptAvatarBorderColor}
-                                            mainAvatar={optionItem.icons[0]}
-                                            secondaryAvatar={optionItem.icons[1]}
-                                            size={isInFocusMode ? CONST.AVATAR_SIZE.SMALL : CONST.AVATAR_SIZE.DEFAULT}
-                                        />
-                                    ) : (
-                                        <MultipleAvatars
-                                            icons={optionItem.icons}
-                                            isFocusMode={isInFocusMode}
-                                            size={isInFocusMode ? CONST.AVATAR_SIZE.SMALL : CONST.AVATAR_SIZE.DEFAULT}
-                                            secondAvatarStyle={[
-                                                StyleUtils.getBackgroundAndBorderStyle(theme.sidebar),
-                                                isFocused ? StyleUtils.getBackgroundAndBorderStyle(focusedBackgroundColor) : undefined,
-                                                hovered && !isFocused ? StyleUtils.getBackgroundAndBorderStyle(hoveredBackgroundColor) : undefined,
-                                            ]}
-                                            shouldShowTooltip={OptionsListUtils.shouldOptionShowTooltip(optionItem)}
-                                        />
-                                    ))}
-                                <View style={contentContainerStyles}>
-                                    <View style={[styles.flexRow, styles.alignItemsCenter, styles.mw100, styles.overflowHidden]}>
-                                        <DisplayNames
-                                            accessibilityLabel={translate('accessibilityHints.chatUserDisplayNames')}
-                                            fullTitle={fullTitle ?? ''}
-                                            displayNamesWithTooltips={optionItem.displayNamesWithTooltips ?? []}
-                                            tooltipEnabled
-                                            numberOfLines={1}
-                                            textStyles={displayNameStyle}
-                                            shouldUseFullTitle={
-                                                !!optionItem.isChatRoom ||
-                                                !!optionItem.isPolicyExpenseChat ||
-                                                !!optionItem.isTaskReport ||
-                                                !!optionItem.isThread ||
-                                                !!optionItem.isMoneyRequestReport ||
-                                                !!optionItem.isInvoiceReport ||
-                                                ReportUtils.isGroupChat(report) ||
-                                                ReportUtils.isSystemChat(report)
-                                            }
-                                        />
-                                        {ReportUtils.isChatUsedForOnboarding(report) && SubscriptionUtils.isUserOnFreeTrial() && (
-                                            <Badge
-                                                success
-                                                text={translate('subscription.badge.freeTrial', {numOfDays: SubscriptionUtils.calculateRemainingFreeTrialDays()})}
-                                                badgeStyles={[styles.mnh0, styles.pl2, styles.pr2, styles.ml1]}
+                                    event?.preventDefault();
+                                    // Enable Composer to focus on clicking the same chat after opening the context menu.
+                                    ReportActionComposeFocusManager.focus();
+                                    hideProductTrainingTooltip();
+                                    onSelectRow(optionItem, popoverAnchor);
+                                }}
+                                onMouseDown={(event) => {
+                                    // Allow composer blur on right click
+                                    if (!event) {
+                                        return;
+                                    }
+                                    // Prevent composer blur on left click
+                                    event.preventDefault();
+                                }}
+                                // reportID may be a number contrary to the type definition
+                                testID={typeof optionItem.reportID === 'number' ? String(optionItem.reportID) : optionItem.reportID}
+                                onSecondaryInteraction={(event) => {
+                                    showPopover(event);
+                                    // Ensure that we blur the composer when opening context menu, so that only one component is focused at a time
+                                    if (DomUtils.getActiveElement()) {
+                                        (DomUtils.getActiveElement() as HTMLElement | null)?.blur();
+                                    }
+                                }}
+                                withoutFocusOnSecondaryInteraction
+                                activeOpacity={variables.pressDimValue}
+                                opacityAnimationDuration={0}
+                                style={[
+                                    styles.flexRow,
+                                    styles.alignItemsCenter,
+                                    styles.justifyContentBetween,
+                                    styles.sidebarLink,
+                                    styles.sidebarLinkInnerLHN,
+                                    StyleUtils.getBackgroundColorStyle(theme.sidebar),
+                                    isFocused ? styles.sidebarLinkActive : null,
+                                    (hovered || isContextMenuActive) && !isFocused ? styles.sidebarLinkHover : null,
+                                ]}
+                                role={CONST.ROLE.BUTTON}
+                                accessibilityLabel={translate('accessibilityHints.navigatesToChat')}
+                                onLayout={onLayout}
+                                needsOffscreenAlphaCompositing={(optionItem?.icons?.length ?? 0) >= 2}
+                            >
+                                <View style={sidebarInnerRowStyle}>
+                                    <View style={[styles.flexRow, styles.alignItemsCenter]}>
+                                        {!!optionItem.icons?.length &&
+                                            firstIcon &&
+                                            (optionItem.shouldShowSubscript ? (
+                                                <SubscriptAvatar
+                                                    backgroundColor={hovered && !isFocused ? hoveredBackgroundColor : subscriptAvatarBorderColor}
+                                                    mainAvatar={firstIcon}
+                                                    secondaryAvatar={optionItem.icons.at(1)}
+                                                    size={isInFocusMode ? CONST.AVATAR_SIZE.SMALL : CONST.AVATAR_SIZE.DEFAULT}
+                                                />
+                                            ) : (
+                                                <MultipleAvatars
+                                                    icons={optionItem.icons}
+                                                    isFocusMode={isInFocusMode}
+                                                    size={isInFocusMode ? CONST.AVATAR_SIZE.SMALL : CONST.AVATAR_SIZE.DEFAULT}
+                                                    secondAvatarStyle={[
+                                                        StyleUtils.getBackgroundAndBorderStyle(theme.sidebar),
+                                                        isFocused ? StyleUtils.getBackgroundAndBorderStyle(focusedBackgroundColor) : undefined,
+                                                        hovered && !isFocused ? StyleUtils.getBackgroundAndBorderStyle(hoveredBackgroundColor) : undefined,
+                                                    ]}
+                                                    shouldShowTooltip={OptionsListUtils.shouldOptionShowTooltip(optionItem)}
+                                                />
+                                            ))}
+                                        <View style={contentContainerStyles}>
+                                            <View style={[styles.flexRow, styles.alignItemsCenter, styles.mw100, styles.overflowHidden]}>
+                                                <DisplayNames
+                                                    accessibilityLabel={translate('accessibilityHints.chatUserDisplayNames')}
+                                                    fullTitle={optionItem.text ?? ''}
+                                                    displayNamesWithTooltips={optionItem.displayNamesWithTooltips ?? []}
+                                                    tooltipEnabled
+                                                    numberOfLines={1}
+                                                    textStyles={displayNameStyle}
+                                                    shouldUseFullTitle={
+                                                        !!optionItem.isChatRoom ||
+                                                        !!optionItem.isPolicyExpenseChat ||
+                                                        !!optionItem.isTaskReport ||
+                                                        !!optionItem.isThread ||
+                                                        !!optionItem.isMoneyRequestReport ||
+                                                        !!optionItem.isInvoiceReport ||
+                                                        ReportUtils.isGroupChat(report) ||
+                                                        ReportUtils.isSystemChat(report)
+                                                    }
+                                                />
+                                                {ReportUtils.isChatUsedForOnboarding(report) && <FreeTrial badgeStyles={[styles.mnh0, styles.pl2, styles.pr2, styles.ml1]} />}
+                                                {isStatusVisible && (
+                                                    <Tooltip
+                                                        text={statusContent}
+                                                        shiftVertical={-4}
+                                                    >
+                                                        <Text style={styles.ml1}>{emojiCode}</Text>
+                                                    </Tooltip>
+                                                )}
+                                            </View>
+                                            {optionItem.alternateText ? (
+                                                <Text
+                                                    style={alternateTextStyle}
+                                                    numberOfLines={1}
+                                                    accessibilityLabel={translate('accessibilityHints.lastChatMessagePreview')}
+                                                >
+                                                    {Parser.htmlToText(optionItem.alternateText)}
+                                                </Text>
+                                            ) : null}
+                                        </View>
+                                        {optionItem?.descriptiveText ? (
+                                            <View style={[styles.flexWrap]}>
+                                                <Text style={[styles.textLabel]}>{optionItem.descriptiveText}</Text>
+                                            </View>
+                                        ) : null}
+                                        {hasBrickError && (
+                                            <View style={[styles.alignItemsCenter, styles.justifyContentCenter]}>
+                                                <Icon
+                                                    testID="RBR Icon"
+                                                    src={Expensicons.DotIndicator}
+                                                    fill={theme.danger}
+                                                />
+                                            </View>
+                                        )}
+                                    </View>
+                                </View>
+                                <View
+                                    style={[styles.flexRow, styles.alignItemsCenter]}
+                                    accessible={false}
+                                >
+                                    {shouldShowGreenDotIndicator && (
+                                        <View style={styles.ml2}>
+                                            <Icon
+                                                testID="GBR Icon"
+                                                src={Expensicons.DotIndicator}
+                                                fill={theme.success}
                                             />
-                                        )}
-                                        {isStatusVisible && (
-                                            <Tooltip
-                                                text={statusContent}
-                                                shiftVertical={-4}
-                                            >
-                                                <Text style={styles.ml1}>{emojiCode}</Text>
-                                            </Tooltip>
-                                        )}
-                                    </View>
-                                    {optionItem.alternateText ? (
-                                        <Text
-                                            style={alternateTextStyle}
-                                            numberOfLines={1}
-                                            accessibilityLabel={translate('accessibilityHints.lastChatMessagePreview')}
+                                        </View>
+                                    )}
+                                    {hasDraftComment && !!optionItem.isAllowedToComment && (
+                                        <View
+                                            style={styles.ml2}
+                                            accessibilityLabel={translate('sidebarScreen.draftedMessage')}
                                         >
-                                            {Parser.htmlToText(optionItem.alternateText)}
-                                        </Text>
-                                    ) : null}
+                                            <Icon
+                                                testID="Pencil Icon"
+                                                fill={theme.icon}
+                                                src={Expensicons.Pencil}
+                                            />
+                                        </View>
+                                    )}
+                                    {!shouldShowGreenDotIndicator && !hasBrickError && !!optionItem.isPinned && (
+                                        <View
+                                            style={styles.ml2}
+                                            accessibilityLabel={translate('sidebarScreen.chatPinned')}
+                                        >
+                                            <Icon
+                                                testID="Pin Icon"
+                                                fill={theme.icon}
+                                                src={Expensicons.Pin}
+                                            />
+                                        </View>
+                                    )}
                                 </View>
-                                {optionItem?.descriptiveText ? (
-                                    <View style={[styles.flexWrap]}>
-                                        <Text style={[styles.textLabel]}>{optionItem.descriptiveText}</Text>
-                                    </View>
-                                ) : null}
-                                {hasBrickError && (
-                                    <View style={[styles.alignItemsCenter, styles.justifyContentCenter]}>
-                                        <Icon
-                                            src={Expensicons.DotIndicator}
-                                            fill={theme.danger}
-                                        />
-                                    </View>
-                                )}
-                            </View>
-                        </View>
-                        <View
-                            style={[styles.flexRow, styles.alignItemsCenter]}
-                            accessible={false}
-                        >
-                            {shouldShowGreenDotIndicator && (
-                                <View style={styles.ml2}>
-                                    <Icon
-                                        src={Expensicons.DotIndicator}
-                                        fill={theme.success}
-                                    />
-                                </View>
-                            )}
-                            {hasDraftComment && optionItem.isAllowedToComment && (
-                                <View
-                                    style={styles.ml2}
-                                    accessibilityLabel={translate('sidebarScreen.draftedMessage')}
-                                >
-                                    <Icon
-                                        testID="Pencil Icon"
-                                        fill={theme.icon}
-                                        src={Expensicons.Pencil}
-                                    />
-                                </View>
-                            )}
-                            {!shouldShowGreenDotIndicator && !hasBrickError && optionItem.isPinned && (
-                                <View
-                                    style={styles.ml2}
-                                    accessibilityLabel={translate('sidebarScreen.chatPinned')}
-                                >
-                                    <Icon
-                                        testID="Pin Icon"
-                                        fill={theme.icon}
-                                        src={Expensicons.Pin}
-                                    />
-                                </View>
-                            )}
-                        </View>
-                    </PressableWithSecondaryInteraction>
-                )}
-            </Hoverable>
+                            </PressableWithSecondaryInteraction>
+                        )}
+                    </Hoverable>
+                </View>
+            </EducationalTooltip>
         </OfflineWithFeedback>
     );
 }

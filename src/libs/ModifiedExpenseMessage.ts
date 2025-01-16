@@ -2,13 +2,14 @@ import Onyx from 'react-native-onyx';
 import type {OnyxCollection, OnyxEntry} from 'react-native-onyx';
 import CONST from '@src/CONST';
 import ONYXKEYS from '@src/ONYXKEYS';
-import type {PolicyTagLists, ReportAction} from '@src/types/onyx';
+import type {PolicyTagLists, Report, ReportAction} from '@src/types/onyx';
+import type {SearchReport} from '@src/types/onyx/SearchResults';
 import * as CurrencyUtils from './CurrencyUtils';
 import DateUtils from './DateUtils';
 import * as Localize from './Localize';
+import Log from './Log';
 import * as PolicyUtils from './PolicyUtils';
 import * as ReportActionsUtils from './ReportActionsUtils';
-import * as ReportConnection from './ReportConnection';
 import * as TransactionUtils from './TransactionUtils';
 
 let allPolicyTags: OnyxCollection<PolicyTagLists> = {};
@@ -22,6 +23,13 @@ Onyx.connect({
         }
         allPolicyTags = value;
     },
+});
+
+let allReports: OnyxCollection<Report>;
+Onyx.connect({
+    key: ONYXKEYS.COLLECTION.REPORT,
+    waitForCollectionCallback: true,
+    callback: (value) => (allReports = value),
 });
 
 /**
@@ -80,12 +88,12 @@ function getMessageLine(prefix: string, messageFragments: string[]): string {
     return messageFragments.reduce((acc, value, index) => {
         if (index === messageFragments.length - 1) {
             if (messageFragments.length === 1) {
-                return `${acc} ${value}.`;
+                return `${acc} ${value}`;
             }
             if (messageFragments.length === 2) {
-                return `${acc} ${Localize.translateLocal('common.and')} ${value}.`;
+                return `${acc} ${Localize.translateLocal('common.and')} ${value}`;
             }
-            return `${acc}, ${Localize.translateLocal('common.and')} ${value}.`;
+            return `${acc}, ${Localize.translateLocal('common.and')} ${value}`;
         }
         if (index === 0) {
             return `${acc} ${value}`;
@@ -94,13 +102,32 @@ function getMessageLine(prefix: string, messageFragments: string[]): string {
     }, prefix);
 }
 
-function getForDistanceRequest(newDistance: string, oldDistance: string, newAmount: string, oldAmount: string): string {
-    if (!oldDistance) {
-        return Localize.translateLocal('iou.setTheDistance', {newDistanceToDisplay: newDistance, newAmountToDisplay: newAmount});
+function getForDistanceRequest(newMerchant: string, oldMerchant: string, newAmount: string, oldAmount: string): string {
+    let changedField: 'distance' | 'rate' = 'distance';
+
+    if (CONST.REGEX.DISTANCE_MERCHANT.test(newMerchant) && CONST.REGEX.DISTANCE_MERCHANT.test(oldMerchant)) {
+        const oldValues = oldMerchant.split('@');
+        const oldDistance = oldValues.at(0)?.trim() ?? '';
+        const oldRate = oldValues.at(1)?.trim() ?? '';
+        const newValues = newMerchant.split('@');
+        const newDistance = newValues.at(0)?.trim() ?? '';
+        const newRate = newValues.at(1)?.trim() ?? '';
+
+        if (oldDistance === newDistance && oldRate !== newRate) {
+            changedField = 'rate';
+        }
+    } else {
+        Log.hmmm("Distance request merchant doesn't match NewDot format. Defaulting to showing as distance changed.", {newMerchant, oldMerchant});
     }
-    return Localize.translateLocal('iou.updatedTheDistance', {
-        newDistanceToDisplay: newDistance,
-        oldDistanceToDisplay: oldDistance,
+
+    const translatedChangedField = Localize.translateLocal(`common.${changedField}`).toLowerCase();
+    if (!oldMerchant.length) {
+        return Localize.translateLocal('iou.setTheDistanceMerchant', {translatedChangedField, newMerchant, newAmountToDisplay: newAmount});
+    }
+    return Localize.translateLocal('iou.updatedTheDistanceMerchant', {
+        translatedChangedField,
+        newMerchant,
+        oldMerchant,
         newAmountToDisplay: newAmount,
         oldAmountToDisplay: oldAmount,
     });
@@ -112,12 +139,13 @@ function getForDistanceRequest(newDistance: string, oldDistance: string, newAmou
  * ModifiedExpense::getNewDotComment in Web-Expensify should match this.
  * If we change this function be sure to update the backend as well.
  */
-function getForReportAction(reportID: string | undefined, reportAction: OnyxEntry<ReportAction>): string {
+function getForReportAction(reportOrID: string | SearchReport | undefined, reportAction: OnyxEntry<ReportAction>): string {
     if (!ReportActionsUtils.isModifiedExpenseAction(reportAction)) {
         return '';
     }
     const reportActionOriginalMessage = ReportActionsUtils.getOriginalMessage(reportAction);
-    const policyID = ReportConnection.getAllReports()?.[`${ONYXKEYS.COLLECTION.REPORT}${reportID}`]?.policyID ?? '-1';
+    const report = typeof reportOrID === 'string' ? allReports?.[`${ONYXKEYS.COLLECTION.REPORT}${reportOrID}`] : reportOrID;
+    const policyID = report?.policyID ?? '-1';
 
     const removalFragments: string[] = [];
     const setFragments: string[] = [];
@@ -215,8 +243,8 @@ function getForReportAction(reportID: string | undefined, reportAction: OnyxEntr
         sortedTagKeys.forEach((policyTagKey, index) => {
             const policyTagListName = policyTags[policyTagKey].name || localizedTagListName;
 
-            const newTag = splittedTag[index] ?? '';
-            const oldTag = splittedOldTag[index] ?? '';
+            const newTag = splittedTag.at(index) ?? '';
+            const oldTag = splittedOldTag.at(index) ?? '';
 
             if (newTag !== oldTag) {
                 buildMessageFragmentForValue(
@@ -276,6 +304,19 @@ function getForReportAction(reportID: string | undefined, reportAction: OnyxEntr
             getBooleanLiteralMessage(reportActionOriginalMessage?.oldReimbursable, Localize.translateLocal('iou.reimbursable'), Localize.translateLocal('iou.nonReimbursable')),
             Localize.translateLocal('iou.expense'),
             true,
+            setFragments,
+            removalFragments,
+            changeFragments,
+        );
+    }
+
+    const hasModifiedAttendees = isReportActionOriginalMessageAnObject && 'oldAttendees' in reportActionOriginalMessage && 'attendees' in reportActionOriginalMessage;
+    if (hasModifiedAttendees) {
+        buildMessageFragmentForValue(
+            reportActionOriginalMessage.oldAttendees ?? '',
+            reportActionOriginalMessage.attendees ?? '',
+            Localize.translateLocal('iou.attendees'),
+            false,
             setFragments,
             removalFragments,
             changeFragments,

@@ -68,7 +68,7 @@ const darkTheme = {
     heroCard: colors.blue400,
     uploadPreviewActivityIndicator: colors.productDark200,
     dropUIBG: 'rgba(6,27,9,0.92)',
-    receiptDropUIBG: 'rgba(3, 212, 124, 0.84)',
+    fileDropUIBG: 'rgba(3, 212, 124, 0.84)',
     checkBox: colors.green400,
     imageCropBackgroundColor: colors.productDark700,
     fallbackIconColor: colors.green700,
@@ -81,7 +81,7 @@ const darkTheme = {
     ourMentionText: colors.green100,
     ourMentionBG: colors.green600,
     tooltipHighlightBG: colors.green100,
-    tooltipHighlightText: colors.green500,
+    tooltipHighlightText: colors.green400,
     tooltipSupportingText: colors.productLight800,
     tooltipPrimaryText: colors.productLight900,
     trialBannerBackgroundColor: colors.green700,
@@ -152,6 +152,7 @@ const darkTheme = {
     },
 
     statusBarStyle: CONST.STATUS_BAR_STYLE.LIGHT_CONTENT,
+    navigationBarButtonsStyle: CONST.NAVIGATION_BAR_BUTTONS_STYLE.LIGHT,
     colorScheme: CONST.COLOR_SCHEME.DARK,
 } satisfies ThemeColors;
 

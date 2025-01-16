@@ -1,5 +1,4 @@
 import {useFocusEffect} from '@react-navigation/native';
-import type {StackScreenProps} from '@react-navigation/stack';
 import React, {useCallback, useState} from 'react';
 import {View} from 'react-native';
 import {useOnyx} from 'react-native-onyx';
@@ -9,17 +8,22 @@ import * as Illustrations from '@components/Icon/Illustrations';
 import ScreenWrapper from '@components/ScreenWrapper';
 import ScrollView from '@components/ScrollView';
 import Section from '@components/Section';
+import Text from '@components/Text';
 import useLocalize from '@hooks/useLocalize';
 import useNetwork from '@hooks/useNetwork';
 import usePermissions from '@hooks/usePermissions';
 import useResponsiveLayout from '@hooks/useResponsiveLayout';
+import useStyledSafeAreaInsets from '@hooks/useStyledSafeAreaInsets';
 import useThemeStyles from '@hooks/useThemeStyles';
+import * as CardUtils from '@libs/CardUtils';
 import * as ErrorUtils from '@libs/ErrorUtils';
 import Navigation from '@libs/Navigation/Navigation';
+import type {PlatformStackScreenProps} from '@libs/Navigation/PlatformStackNavigation/types';
 import type {FullScreenNavigatorParamList} from '@libs/Navigation/types';
-import {isControlPolicy} from '@libs/PolicyUtils';
+import {getPerDiemCustomUnit, isControlPolicy} from '@libs/PolicyUtils';
 import * as Category from '@userActions/Policy/Category';
 import * as DistanceRate from '@userActions/Policy/DistanceRate';
+import * as PerDiem from '@userActions/Policy/PerDiem';
 import * as Policy from '@userActions/Policy/Policy';
 import * as Tag from '@userActions/Policy/Tag';
 import * as Report from '@userActions/Report';
@@ -36,7 +40,7 @@ import type {WithPolicyAndFullscreenLoadingProps} from './withPolicyAndFullscree
 import withPolicyAndFullscreenLoading from './withPolicyAndFullscreenLoading';
 import ToggleSettingOptionRow from './workflows/ToggleSettingsOptionRow';
 
-type WorkspaceMoreFeaturesPageProps = WithPolicyAndFullscreenLoadingProps & StackScreenProps<FullScreenNavigatorParamList, typeof SCREENS.WORKSPACE.MORE_FEATURES>;
+type WorkspaceMoreFeaturesPageProps = WithPolicyAndFullscreenLoadingProps & PlatformStackScreenProps<FullScreenNavigatorParamList, typeof SCREENS.WORKSPACE.MORE_FEATURES>;
 
 type Item = {
     icon: IconAsset;
@@ -60,8 +64,9 @@ type SectionObject = {
 function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPageProps) {
     const styles = useThemeStyles();
     const {shouldUseNarrowLayout} = useResponsiveLayout();
+    const {safeAreaPaddingBottomStyle} = useStyledSafeAreaInsets();
     const {translate} = useLocalize();
-    const {canUseWorkspaceFeeds, canUseWorkspaceRules} = usePermissions();
+    const {canUsePerDiem} = usePermissions();
     const hasAccountingConnection = !isEmptyObject(policy?.connections);
     const isAccountingEnabled = !!policy?.areConnectionsEnabled || !isEmptyObject(policy?.connections);
     const isSyncTaxEnabled =
@@ -69,14 +74,23 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
         !!policy?.connections?.xero?.config?.importTaxRates ||
         !!policy?.connections?.netsuite?.options?.config?.syncOptions?.syncTax;
     const policyID = policy?.id;
-    const workspaceAccountID = policy?.workspaceAccountID ?? -1;
-    const [cardsList] = useOnyx(`${ONYXKEYS.COLLECTION.WORKSPACE_CARDS_LIST}${workspaceAccountID.toString()}${CONST.EXPENSIFY_CARD.BANK}`);
-    const [companyCardsList] = useOnyx(`${ONYXKEYS.COLLECTION.SHARED_NVP_PRIVATE_DOMAIN_MEMBER}${workspaceAccountID.toString()}`);
+    const workspaceAccountID = policy?.workspaceAccountID ?? CONST.DEFAULT_NUMBER_ID;
+    const [cardsList] = useOnyx(`${ONYXKEYS.COLLECTION.WORKSPACE_CARDS_LIST}${workspaceAccountID.toString()}_${CONST.EXPENSIFY_CARD.BANK}`);
+    const [cardFeeds] = useOnyx(`${ONYXKEYS.COLLECTION.SHARED_NVP_PRIVATE_DOMAIN_MEMBER}${workspaceAccountID.toString()}`);
     const [isOrganizeWarningModalOpen, setIsOrganizeWarningModalOpen] = useState(false);
     const [isIntegrateWarningModalOpen, setIsIntegrateWarningModalOpen] = useState(false);
     const [isReportFieldsWarningModalOpen, setIsReportFieldsWarningModalOpen] = useState(false);
     const [isDisableExpensifyCardWarningModalOpen, setIsDisableExpensifyCardWarningModalOpen] = useState(false);
     const [isDisableCompanyCardsWarningModalOpen, setIsDisableCompanyCardsWarningModalOpen] = useState(false);
+
+    const perDiemCustomUnit = getPerDiemCustomUnit(policy);
+
+    const onDisabledOrganizeSwitchPress = useCallback(() => {
+        if (!hasAccountingConnection) {
+            return;
+        }
+        setIsOrganizeWarningModalOpen(true);
+    }, [hasAccountingConnection]);
 
     const spendItems: Item[] = [
         {
@@ -92,11 +106,7 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
                 DistanceRate.enablePolicyDistanceRates(policyID, isEnabled);
             },
         },
-    ];
-
-    // TODO remove this when feature will be fully done, and move spend item inside spendItems array
-    if (canUseWorkspaceFeeds) {
-        spendItems.push({
+        {
             icon: Illustrations.HandCard,
             titleTranslationKey: 'workspace.moreFeatures.expensifyCard.title',
             subtitleTranslationKey: 'workspace.moreFeatures.expensifyCard.subtitle',
@@ -112,28 +122,47 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
             disabledAction: () => {
                 setIsDisableExpensifyCardWarningModalOpen(true);
             },
-        });
+        },
+    ];
+
+    spendItems.push({
+        icon: Illustrations.CompanyCard,
+        titleTranslationKey: 'workspace.moreFeatures.companyCards.title',
+        subtitleTranslationKey: 'workspace.moreFeatures.companyCards.subtitle',
+        isActive: policy?.areCompanyCardsEnabled ?? false,
+        pendingAction: policy?.pendingFields?.areCompanyCardsEnabled,
+        disabled: !isEmptyObject(CardUtils.getCompanyFeeds(cardFeeds)),
+        action: (isEnabled: boolean) => {
+            if (!policyID) {
+                return;
+            }
+            if (isEnabled && !isControlPolicy(policy)) {
+                Navigation.navigate(ROUTES.WORKSPACE_UPGRADE.getRoute(policyID, CONST.UPGRADE_FEATURE_INTRO_MAPPING.companyCards.alias, ROUTES.WORKSPACE_MORE_FEATURES.getRoute(policyID)));
+                return;
+            }
+            Policy.enableCompanyCards(policyID, isEnabled);
+        },
+        disabledAction: () => {
+            setIsDisableCompanyCardsWarningModalOpen(true);
+        },
+    });
+
+    if (canUsePerDiem) {
         spendItems.push({
-            icon: Illustrations.CompanyCard,
-            titleTranslationKey: 'workspace.moreFeatures.companyCards.title',
-            subtitleTranslationKey: 'workspace.moreFeatures.companyCards.subtitle',
-            isActive: policy?.areCompanyCardsEnabled ?? false,
-            pendingAction: policy?.pendingFields?.areCompanyCardsEnabled,
-            disabled: !isEmptyObject(companyCardsList),
+            icon: Illustrations.PerDiem,
+            titleTranslationKey: 'workspace.moreFeatures.perDiem.title',
+            subtitleTranslationKey: 'workspace.moreFeatures.perDiem.subtitle',
+            isActive: policy?.arePerDiemRatesEnabled ?? false,
+            pendingAction: policy?.pendingFields?.arePerDiemRatesEnabled,
             action: (isEnabled: boolean) => {
                 if (!policyID) {
                     return;
                 }
                 if (isEnabled && !isControlPolicy(policy)) {
-                    Navigation.navigate(
-                        ROUTES.WORKSPACE_UPGRADE.getRoute(policyID, CONST.UPGRADE_FEATURE_INTRO_MAPPING.companyCards.alias, ROUTES.WORKSPACE_MORE_FEATURES.getRoute(policyID)),
-                    );
+                    Navigation.navigate(ROUTES.WORKSPACE_UPGRADE.getRoute(policyID, CONST.UPGRADE_FEATURE_INTRO_MAPPING.perDiem.alias, ROUTES.WORKSPACE_MORE_FEATURES.getRoute(policyID)));
                     return;
                 }
-                Policy.enableCompanyCards(policyID, isEnabled);
-            },
-            disabledAction: () => {
-                setIsDisableCompanyCardsWarningModalOpen(true);
+                PerDiem.enablePerDiem(policyID, isEnabled, perDiemCustomUnit?.customUnitID);
             },
         });
     }
@@ -152,11 +181,7 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
                 Policy.enablePolicyWorkflows(policyID, isEnabled);
             },
         },
-    ];
-
-    // TODO remove this when feature will be fully done, and move manage item inside manageItems array
-    if (canUseWorkspaceRules) {
-        manageItems.splice(1, 0, {
+        {
             icon: Illustrations.Rules,
             titleTranslationKey: 'workspace.moreFeatures.rules.title',
             subtitleTranslationKey: 'workspace.moreFeatures.rules.subtitle',
@@ -173,8 +198,8 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
                 }
                 Policy.enablePolicyRules(policyID, isEnabled);
             },
-        });
-    }
+        },
+    ];
 
     const earnItems: Item[] = [
         {
@@ -199,13 +224,10 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
             subtitleTranslationKey: 'workspace.moreFeatures.categories.subtitle',
             isActive: policy?.areCategoriesEnabled ?? false,
             disabled: hasAccountingConnection,
+            disabledAction: onDisabledOrganizeSwitchPress,
             pendingAction: policy?.pendingFields?.areCategoriesEnabled,
             action: (isEnabled: boolean) => {
                 if (!policyID) {
-                    return;
-                }
-                if (hasAccountingConnection) {
-                    setIsOrganizeWarningModalOpen(true);
                     return;
                 }
                 Category.enablePolicyCategories(policyID, isEnabled);
@@ -218,12 +240,9 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
             isActive: policy?.areTagsEnabled ?? false,
             disabled: hasAccountingConnection,
             pendingAction: policy?.pendingFields?.areTagsEnabled,
+            disabledAction: onDisabledOrganizeSwitchPress,
             action: (isEnabled: boolean) => {
                 if (!policyID) {
-                    return;
-                }
-                if (hasAccountingConnection) {
-                    setIsOrganizeWarningModalOpen(true);
                     return;
                 }
                 Tag.enablePolicyTags(policyID, isEnabled);
@@ -236,12 +255,9 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
             isActive: (policy?.tax?.trackingEnabled ?? false) || isSyncTaxEnabled,
             disabled: hasAccountingConnection,
             pendingAction: policy?.pendingFields?.tax,
+            disabledAction: onDisabledOrganizeSwitchPress,
             action: (isEnabled: boolean) => {
                 if (!policyID) {
-                    return;
-                }
-                if (hasAccountingConnection) {
-                    setIsOrganizeWarningModalOpen(true);
                     return;
                 }
                 Policy.enablePolicyTaxes(policyID, isEnabled);
@@ -254,12 +270,9 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
             isActive: policy?.areReportFieldsEnabled ?? false,
             disabled: hasAccountingConnection,
             pendingAction: policy?.pendingFields?.areReportFieldsEnabled,
+            disabledAction: onDisabledOrganizeSwitchPress,
             action: (isEnabled: boolean) => {
                 if (!policyID) {
-                    return;
-                }
-                if (hasAccountingConnection) {
-                    setIsOrganizeWarningModalOpen(true);
                     return;
                 }
                 if (isEnabled) {
@@ -285,12 +298,14 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
             subtitleTranslationKey: 'workspace.moreFeatures.connections.subtitle',
             isActive: isAccountingEnabled,
             pendingAction: policy?.pendingFields?.areConnectionsEnabled,
-            action: (isEnabled: boolean) => {
-                if (!policyID) {
+            disabledAction: () => {
+                if (!hasAccountingConnection) {
                     return;
                 }
-                if (hasAccountingConnection) {
-                    setIsIntegrateWarningModalOpen(true);
+                setIsIntegrateWarningModalOpen(true);
+            },
+            action: (isEnabled: boolean) => {
+                if (!policyID) {
                     return;
                 }
                 Policy.enablePolicyConnections(policyID, isEnabled);
@@ -405,11 +420,17 @@ function WorkspaceMoreFeaturesPage({policy, route}: WorkspaceMoreFeaturesPagePro
             >
                 <HeaderWithBackButton
                     icon={Illustrations.Gears}
+                    shouldUseHeadlineHeader
                     title={translate('workspace.common.moreFeatures')}
                     shouldShowBackButton={shouldUseNarrowLayout}
                 />
 
-                <ScrollView contentContainerStyle={styles.pb2}>{sections.map(renderSection)}</ScrollView>
+                <ScrollView contentContainerStyle={safeAreaPaddingBottomStyle}>
+                    <Text style={[styles.ph5, styles.mb4, styles.mt3, styles.textSupporting, shouldUseNarrowLayout ? styles.workspaceSectionMobile : styles.workspaceSection]}>
+                        {translate('workspace.moreFeatures.subtitle')}
+                    </Text>
+                    {sections.map(renderSection)}
+                </ScrollView>
 
                 <ConfirmModal
                     title={translate('workspace.moreFeatures.connectionsWarningModal.featureEnabledTitle')}

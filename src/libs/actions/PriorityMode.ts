@@ -1,10 +1,11 @@
 import debounce from 'lodash/debounce';
 import Onyx from 'react-native-onyx';
+import type {OnyxCollection} from 'react-native-onyx';
 import Log from '@libs/Log';
-import * as ReportConnection from '@libs/ReportConnection';
-import * as ReportUtils from '@libs/ReportUtils';
+import {isReportParticipant, isValidReport} from '@libs/ReportUtils';
 import CONST from '@src/CONST';
 import ONYXKEYS from '@src/ONYXKEYS';
+import type {Report} from '@src/types/onyx';
 
 /**
  * This actions file is used to automatically switch a user into #focus mode when they exceed a certain number of reports. We do this primarily for performance reasons.
@@ -57,14 +58,23 @@ Onyx.connect({
     },
 });
 
-let hasTriedFocusMode: boolean | null | undefined;
+let hasTriedFocusMode: boolean | undefined;
 Onyx.connect({
     key: ONYXKEYS.NVP_TRY_FOCUS_MODE,
     callback: (val) => {
-        hasTriedFocusMode = val ?? null;
+        hasTriedFocusMode = val;
 
         // eslint-disable-next-line @typescript-eslint/no-use-before-define
         checkRequiredData();
+    },
+});
+
+let allReports: OnyxCollection<Report> = {};
+Onyx.connect({
+    key: ONYXKEYS.COLLECTION.REPORT,
+    waitForCollectionCallback: true,
+    callback: (value) => {
+        allReports = value;
     },
 });
 
@@ -77,7 +87,7 @@ function resetHasReadRequiredDataFromStorage() {
 }
 
 function checkRequiredData() {
-    if (ReportConnection.getAllReports() === undefined || hasTriedFocusMode === undefined || isInFocusMode === undefined || isLoadingReportData) {
+    if (allReports === undefined || hasTriedFocusMode === undefined || isInFocusMode === undefined || isLoadingReportData) {
         return;
     }
 
@@ -98,14 +108,13 @@ function tryFocusModeUpdate() {
         }
 
         const validReports = [];
-        const allReports = ReportConnection.getAllReports();
         Object.keys(allReports ?? {}).forEach((key) => {
             const report = allReports?.[key];
             if (!report) {
                 return;
             }
 
-            if (!ReportUtils.isValidReport(report) || !ReportUtils.isReportParticipant(currentUserAccountID ?? -1, report)) {
+            if (!isValidReport(report) || !isReportParticipant(currentUserAccountID ?? CONST.DEFAULT_NUMBER_ID, report)) {
                 return;
             }
 

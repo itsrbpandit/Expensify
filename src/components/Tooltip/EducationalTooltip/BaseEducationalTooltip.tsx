@@ -1,9 +1,9 @@
-import React, {memo, useEffect, useRef} from 'react';
-import {InteractionManager} from 'react-native';
+import {NavigationContext} from '@react-navigation/native';
+import React, {memo, useContext, useEffect, useRef, useState} from 'react';
 import type {LayoutRectangle, NativeSyntheticEvent} from 'react-native';
 import GenericTooltip from '@components/Tooltip/GenericTooltip';
 import type {EducationalTooltipProps} from '@components/Tooltip/types';
-import CONST from '@src/CONST';
+import measureTooltipCoordinate from './measureTooltipCoordinate';
 
 type LayoutChangeEventWithTarget = NativeSyntheticEvent<{layout: LayoutRectangle; target: HTMLElement}>;
 
@@ -11,35 +11,54 @@ type LayoutChangeEventWithTarget = NativeSyntheticEvent<{layout: LayoutRectangle
  * A component used to wrap an element intended for displaying a tooltip.
  * This tooltip would show immediately without user's interaction and hide after 5 seconds.
  */
-function BaseEducationalTooltip({children, shouldAutoDismiss = false, ...props}: EducationalTooltipProps) {
+function BaseEducationalTooltip({children, shouldRender = false, shouldHideOnNavigate = true, ...props}: EducationalTooltipProps) {
     const hideTooltipRef = useRef<() => void>();
 
-    useEffect(
-        () => () => {
-            if (!hideTooltipRef.current) {
-                return;
-            }
+    const [shouldMeasure, setShouldMeasure] = useState(false);
+    const show = useRef<() => void>();
 
-            hideTooltipRef.current();
-        },
-        [],
-    );
+    const navigator = useContext(NavigationContext);
 
-    // Automatically hide tooltip after 5 seconds
     useEffect(() => {
-        if (!hideTooltipRef.current || !shouldAutoDismiss) {
+        return () => {
+            hideTooltipRef.current?.();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!shouldMeasure) {
             return;
         }
-
-        const timerID = setTimeout(hideTooltipRef.current, 5000);
+        if (!shouldRender) {
+            hideTooltipRef.current?.();
+            return;
+        }
+        // When tooltip is used inside an animated view (e.g. popover), we need to wait for the animation to finish before measuring content.
+        const timerID = setTimeout(() => {
+            show.current?.();
+        }, 500);
         return () => {
             clearTimeout(timerID);
         };
-    }, [shouldAutoDismiss]);
+    }, [shouldMeasure, shouldRender]);
+
+    useEffect(() => {
+        if (!navigator) {
+            return;
+        }
+        const unsubscribe = navigator.addListener('blur', () => {
+            if (!shouldHideOnNavigate) {
+                return;
+            }
+            hideTooltipRef.current?.();
+        });
+        return unsubscribe;
+    }, [navigator, shouldHideOnNavigate]);
 
     return (
         <GenericTooltip
             shouldForceAnimate
+            shouldRender={shouldRender}
             // eslint-disable-next-line react/jsx-props-no-spreading
             {...props}
         >
@@ -48,22 +67,12 @@ function BaseEducationalTooltip({children, shouldAutoDismiss = false, ...props}:
                 hideTooltipRef.current = hideTooltip;
                 return React.cloneElement(children as React.ReactElement, {
                     onLayout: (e: LayoutChangeEventWithTarget) => {
+                        if (!shouldMeasure) {
+                            setShouldMeasure(true);
+                        }
                         // e.target is specific to native, use e.nativeEvent.target on web instead
                         const target = e.target || e.nativeEvent.target;
-                        // When tooltip is used inside an animated view (e.g. popover), we need to wait for the animation to finish before measuring content.
-                        setTimeout(() => {
-                            InteractionManager.runAfterInteractions(() => {
-                                target?.measure((fx, fy, width, height, px, py) => {
-                                    updateTargetBounds({
-                                        height,
-                                        width,
-                                        x: px,
-                                        y: py,
-                                    });
-                                    showTooltip();
-                                });
-                            });
-                        }, CONST.ANIMATED_TRANSITION);
+                        show.current = () => measureTooltipCoordinate(target, updateTargetBounds, showTooltip);
                     },
                 });
             }}

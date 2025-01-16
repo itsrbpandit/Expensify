@@ -2,7 +2,7 @@
 import * as NativeNavigation from '@react-navigation/native';
 import {act, fireEvent, render, screen, waitFor} from '@testing-library/react-native';
 import {addSeconds, format, subMinutes, subSeconds} from 'date-fns';
-import {utcToZonedTime} from 'date-fns-tz';
+import {toZonedTime} from 'date-fns-tz';
 import React from 'react';
 import {AppState, DeviceEventEmitter} from 'react-native';
 import type {TextStyle, ViewStyle} from 'react-native';
@@ -25,11 +25,12 @@ import type {ReportAction, ReportActions} from '@src/types/onyx';
 import type {NativeNavigationMock} from '../../__mocks__/@react-navigation/native';
 import PusherHelper from '../utils/PusherHelper';
 import * as TestHelper from '../utils/TestHelper';
+import {navigateToSidebarOption} from '../utils/TestHelper';
 import waitForBatchedUpdates from '../utils/waitForBatchedUpdates';
 import waitForBatchedUpdatesWithAct from '../utils/waitForBatchedUpdatesWithAct';
 
 // We need a large timeout here as we are lazy loading React Navigation screens and this test is running against the entire mounted App
-jest.setTimeout(30000);
+jest.setTimeout(60000);
 
 jest.mock('@react-navigation/native');
 jest.mock('../../src/libs/Notification/LocalNotification');
@@ -82,18 +83,11 @@ function navigateToSidebar(): Promise<void> {
     return waitForBatchedUpdates();
 }
 
-async function navigateToSidebarOption(index: number): Promise<void> {
-    const hintText = Localize.translateLocal('accessibilityHints.navigatesToChat');
-    const optionRows = screen.queryAllByAccessibilityHint(hintText);
-    fireEvent(optionRows[index], 'press');
-    await waitForBatchedUpdatesWithAct();
-}
-
 function areYouOnChatListScreen(): boolean {
     const hintText = Localize.translateLocal('sidebarScreen.listOfChats');
-    const sidebarLinks = screen.queryAllByLabelText(hintText);
+    const sidebarLinks = screen.queryAllByLabelText(hintText, {includeHiddenElements: true});
 
-    return !sidebarLinks?.[0]?.props?.accessibilityElementsHidden;
+    return !sidebarLinks?.at(0)?.props?.accessibilityElementsHidden;
 }
 
 const REPORT_ID = '1';
@@ -140,7 +134,10 @@ function signInAndGetAppWithUnreadChat(): Promise<void> {
                 lastReadTime: reportAction3CreatedDate,
                 lastVisibleActionCreated: reportAction9CreatedDate,
                 lastMessageText: 'Test',
-                participants: {[USER_B_ACCOUNT_ID]: {hidden: false}},
+                participants: {
+                    [USER_B_ACCOUNT_ID]: {notificationPreference: CONST.REPORT.NOTIFICATION_PREFERENCE.ALWAYS},
+                    [USER_A_ACCOUNT_ID]: {notificationPreference: CONST.REPORT.NOTIFICATION_PREFERENCE.ALWAYS},
+                },
                 lastActorAccountID: USER_B_ACCOUNT_ID,
                 type: CONST.REPORT.TYPE.CHAT,
             });
@@ -185,7 +182,11 @@ function signInAndGetAppWithUnreadChat(): Promise<void> {
 }
 
 describe('Unread Indicators', () => {
-    afterEach(() => {
+    beforeAll(() => {
+        PusherHelper.setup();
+    });
+
+    beforeEach(() => {
         jest.clearAllMocks();
         Onyx.clear();
 
@@ -231,7 +232,7 @@ describe('Unread Indicators', () => {
                 const newMessageLineIndicatorHintText = Localize.translateLocal('accessibilityHints.newMessageLineIndicator');
                 const unreadIndicator = screen.queryAllByLabelText(newMessageLineIndicatorHintText);
                 expect(unreadIndicator).toHaveLength(1);
-                const reportActionID = unreadIndicator[0]?.props?.['data-action-id'] as string;
+                const reportActionID = unreadIndicator.at(0)?.props?.['data-action-id'] as string;
                 expect(reportActionID).toBe('4');
                 // Scroll up and verify that the "New messages" badge appears
                 scrollUpToRevealNewMessagesBadge();
@@ -298,10 +299,13 @@ describe('Unread Indicators', () => {
                             reportID: NEW_REPORT_ID,
                             reportName: CONST.REPORT.DEFAULT_REPORT_NAME,
                             lastReadTime: '',
-                            lastVisibleActionCreated: DateUtils.getDBTime(utcToZonedTime(NEW_REPORT_FIST_MESSAGE_CREATED_DATE, 'UTC').valueOf()),
+                            lastVisibleActionCreated: DateUtils.getDBTime(toZonedTime(NEW_REPORT_FIST_MESSAGE_CREATED_DATE, 'UTC').valueOf()),
                             lastMessageText: 'Comment 1',
                             lastActorAccountID: USER_C_ACCOUNT_ID,
-                            participants: {[USER_C_ACCOUNT_ID]: {hidden: false}},
+                            participants: {
+                                [USER_C_ACCOUNT_ID]: {notificationPreference: CONST.REPORT.NOTIFICATION_PREFERENCE.ALWAYS},
+                                [USER_A_ACCOUNT_ID]: {notificationPreference: CONST.REPORT.NOTIFICATION_PREFERENCE.ALWAYS},
+                            },
                             type: CONST.REPORT.TYPE.CHAT,
                         },
                     },
@@ -349,11 +353,11 @@ describe('Unread Indicators', () => {
                 const displayNameHintTexts = Localize.translateLocal('accessibilityHints.chatUserDisplayNames');
                 const displayNameTexts = screen.queryAllByLabelText(displayNameHintTexts);
                 expect(displayNameTexts).toHaveLength(2);
-                const firstReportOption = displayNameTexts[0];
+                const firstReportOption = displayNameTexts.at(0);
                 expect((firstReportOption?.props?.style as TextStyle)?.fontWeight).toBe(FontUtils.fontWeight.bold);
                 expect(screen.getByText('C User')).toBeOnTheScreen();
 
-                const secondReportOption = displayNameTexts[1];
+                const secondReportOption = displayNameTexts.at(1);
                 expect((secondReportOption?.props?.style as TextStyle)?.fontWeight).toBe(FontUtils.fontWeight.bold);
                 expect(screen.getByText('B User')).toBeOnTheScreen();
 
@@ -365,12 +369,12 @@ describe('Unread Indicators', () => {
                 await act(() => (NativeNavigation as NativeNavigationMock).triggerTransitionEnd());
                 // Verify that report we navigated to appears in a "read" state while the original unread report still shows as unread
                 const hintText = Localize.translateLocal('accessibilityHints.chatUserDisplayNames');
-                const displayNameTexts = screen.queryAllByLabelText(hintText);
+                const displayNameTexts = screen.queryAllByLabelText(hintText, {includeHiddenElements: true});
                 expect(displayNameTexts).toHaveLength(2);
-                expect((displayNameTexts[0]?.props?.style as TextStyle)?.fontWeight).toBe(FontUtils.fontWeight.normal);
-                expect(screen.getAllByText('C User')[0]).toBeOnTheScreen();
-                expect((displayNameTexts[1]?.props?.style as TextStyle)?.fontWeight).toBe(FontUtils.fontWeight.bold);
-                expect(screen.getByText('B User')).toBeOnTheScreen();
+                expect((displayNameTexts.at(0)?.props?.style as TextStyle)?.fontWeight).toBe(FontUtils.fontWeight.normal);
+                expect(screen.getAllByText('C User').at(0)).toBeOnTheScreen();
+                expect((displayNameTexts.at(1)?.props?.style as TextStyle)?.fontWeight).toBe(FontUtils.fontWeight.bold);
+                expect(screen.getByText('B User', {includeHiddenElements: true})).toBeOnTheScreen();
             }));
 
     xit('Manually marking a chat message as unread shows the new line indicator and updates the LHN', () =>
@@ -388,7 +392,7 @@ describe('Unread Indicators', () => {
                 const newMessageLineIndicatorHintText = Localize.translateLocal('accessibilityHints.newMessageLineIndicator');
                 const unreadIndicator = screen.queryAllByLabelText(newMessageLineIndicatorHintText);
                 expect(unreadIndicator).toHaveLength(1);
-                const reportActionID = unreadIndicator[0]?.props?.['data-action-id'] as string;
+                const reportActionID = unreadIndicator.at(0)?.props?.['data-action-id'] as string;
                 expect(reportActionID).toBe('3');
                 // Scroll up and verify the new messages badge appears
                 scrollUpToRevealNewMessagesBadge();
@@ -401,7 +405,7 @@ describe('Unread Indicators', () => {
                 const hintText = Localize.translateLocal('accessibilityHints.chatUserDisplayNames');
                 const displayNameTexts = screen.queryAllByLabelText(hintText);
                 expect(displayNameTexts).toHaveLength(1);
-                expect((displayNameTexts[0]?.props?.style as TextStyle)?.fontWeight).toBe(FontUtils.fontWeight.bold);
+                expect((displayNameTexts.at(0)?.props?.style as TextStyle)?.fontWeight).toBe(FontUtils.fontWeight.bold);
                 expect(screen.getByText('B User')).toBeOnTheScreen();
 
                 // Navigate to the report again and back to the sidebar
@@ -413,7 +417,7 @@ describe('Unread Indicators', () => {
                 const hintText = Localize.translateLocal('accessibilityHints.chatUserDisplayNames');
                 const displayNameTexts = screen.queryAllByLabelText(hintText);
                 expect(displayNameTexts).toHaveLength(1);
-                expect((displayNameTexts[0]?.props?.style as TextStyle)?.fontWeight).toBe(undefined);
+                expect((displayNameTexts.at(0)?.props?.style as TextStyle)?.fontWeight).toBe(undefined);
                 expect(screen.getByText('B User')).toBeOnTheScreen();
 
                 // Navigate to the report again and verify the new line indicator is missing
@@ -524,11 +528,11 @@ describe('Unread Indicators', () => {
                 .then(() => {
                     // Verify the chat preview text matches the last comment from the current user
                     const hintText = Localize.translateLocal('accessibilityHints.lastChatMessagePreview');
-                    const alternateText = screen.queryAllByLabelText(hintText);
+                    const alternateText = screen.queryAllByLabelText(hintText, {includeHiddenElements: true});
                     expect(alternateText).toHaveLength(1);
 
                     // This message is visible on the sidebar and the report screen, so there are two occurrences.
-                    expect(screen.getAllByText('Current User Comment 1')[0]).toBeOnTheScreen();
+                    expect(screen.getAllByText('Current User Comment 1').at(0)).toBeOnTheScreen();
 
                     if (lastReportAction) {
                         Report.deleteReportComment(REPORT_ID, lastReportAction);
@@ -537,10 +541,71 @@ describe('Unread Indicators', () => {
                 })
                 .then(() => {
                     const hintText = Localize.translateLocal('accessibilityHints.lastChatMessagePreview');
-                    const alternateText = screen.queryAllByLabelText(hintText);
+                    const alternateText = screen.queryAllByLabelText(hintText, {includeHiddenElements: true});
                     expect(alternateText).toHaveLength(1);
-                    expect(screen.getAllByText('Comment 9')[0]).toBeOnTheScreen();
+                    expect(screen.getAllByText('Comment 9').at(0)).toBeOnTheScreen();
                 })
         );
+    });
+
+    it('Move the new line indicator to the next message when the unread message is deleted', async () => {
+        let reportActions: OnyxEntry<ReportActions>;
+        const connection = Onyx.connect({
+            key: `${ONYXKEYS.COLLECTION.REPORT_ACTIONS}${REPORT_ID}`,
+            callback: (val) => (reportActions = val),
+        });
+        await signInAndGetAppWithUnreadChat();
+        await navigateToSidebarOption(0);
+
+        Report.addComment(REPORT_ID, 'Comment 1');
+
+        await waitForBatchedUpdates();
+
+        const firstNewReportAction = reportActions ? CollectionUtils.lastItem(reportActions) : undefined;
+
+        if (firstNewReportAction) {
+            Report.markCommentAsUnread(REPORT_ID, firstNewReportAction?.created);
+
+            await waitForBatchedUpdates();
+
+            Report.addComment(REPORT_ID, 'Comment 2');
+
+            await waitForBatchedUpdates();
+
+            Report.deleteReportComment(REPORT_ID, firstNewReportAction);
+
+            await waitForBatchedUpdates();
+        }
+
+        const secondNewReportAction = reportActions ? CollectionUtils.lastItem(reportActions) : undefined;
+
+        const newMessageLineIndicatorHintText = Localize.translateLocal('accessibilityHints.newMessageLineIndicator');
+        const unreadIndicator = screen.queryAllByLabelText(newMessageLineIndicatorHintText);
+        expect(unreadIndicator).toHaveLength(1);
+        const reportActionID = unreadIndicator.at(0)?.props?.['data-action-id'] as string;
+        expect(reportActionID).toBe(secondNewReportAction?.reportActionID);
+
+        Onyx.disconnect(connection);
+    });
+
+    it('Do not display the new line indicator when receiving a new message from another user', async () => {
+        // Given a read report
+        await signInAndGetAppWithUnreadChat();
+
+        Report.readNewestAction(REPORT_ID, true);
+
+        await waitForBatchedUpdates();
+
+        await navigateToSidebarOption(0);
+
+        // When another user adds a new message
+        await Onyx.merge(`${ONYXKEYS.COLLECTION.REPORT_ACTIONS}${REPORT_ID}`, {
+            10: TestHelper.buildTestReportComment(DateUtils.getDBTime(), USER_B_ACCOUNT_ID, '10'),
+        });
+
+        // Then the new line indicator shouldn't be displayed
+        const newMessageLineIndicatorHintText = Localize.translateLocal('accessibilityHints.newMessageLineIndicator');
+        const unreadIndicator = screen.queryAllByLabelText(newMessageLineIndicatorHintText);
+        expect(unreadIndicator).toHaveLength(0);
     });
 });

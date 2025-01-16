@@ -3,8 +3,9 @@ import type {IOURequestType} from '@libs/actions/IOU';
 import type CONST from '@src/CONST';
 import type ONYXKEYS from '@src/ONYXKEYS';
 import type CollectionDataSet from '@src/types/utils/CollectionDataSet';
-import type {Participant, Split} from './IOU';
+import type {Attendee, Participant, Split} from './IOU';
 import type * as OnyxCommon from './OnyxCommon';
+import type {Unit} from './Policy';
 import type RecentWaypoint from './RecentWaypoint';
 import type ReportAction from './ReportAction';
 import type {ViolationName} from './TransactionViolation';
@@ -86,6 +87,18 @@ type Comment = {
 
 /** Model of transaction custom unit */
 type TransactionCustomUnit = {
+    /** Attributes related to custom unit */
+    attributes?: {
+        /** Duration of the custom unit for per diem */
+        dates: {
+            /** Start date of the custom unit */
+            start: string;
+
+            /** End date of the custom unit */
+            end: string;
+        };
+    };
+
     /** ID of the custom unit */
     customUnitID?: string;
 
@@ -99,7 +112,28 @@ type TransactionCustomUnit = {
     name?: ValueOf<typeof CONST.CUSTOM_UNITS>;
 
     /** Default rate for custom unit */
-    defaultP2PRate?: number;
+    defaultP2PRate?: number | null;
+
+    /** The unit for the distance/quantity */
+    distanceUnit?: Unit;
+
+    /** Sub Rates for the custom unit */
+    subRates?: Array<{
+        /** Key of the sub rate */
+        key?: string;
+
+        /** ID of the custom unit sub rate */
+        id: string;
+
+        /** Custom unit amount */
+        quantity: number;
+
+        /** Custom unit name */
+        name: string;
+
+        /** Custom unit rate */
+        rate?: number;
+    }>;
 };
 
 /** Types of geometry */
@@ -186,6 +220,15 @@ type TaxRate = {
     data?: TaxRateData;
 };
 
+/** This represents the details of the traveler */
+type TravelerPersonalDetails = {
+    /** Email of the traveler */
+    email: string;
+
+    /** Name of the traveler */
+    name: string;
+};
+
 /** Model of reservation */
 type Reservation = {
     /** ID of the reservation */
@@ -203,14 +246,26 @@ type Reservation = {
     /** In flight reservations, this represents the details of the airline company */
     company?: Company;
 
+    /** In car and hotel reservations, this represents the cancellation policy */
+    cancellationPolicy?: string;
+
+    /** In car and hotel reservations, this represents the cancellation deadline */
+    cancellationDeadline?: string;
+
     /** Collection of passenger confirmations */
     confirmations?: ReservationConfirmation[];
 
     /** In flight and car reservations, this represents the number of passengers */
     numPassengers?: number;
 
+    /** In flight reservations, this represents the flight duration in seconds */
+    duration: number;
+
     /** In hotel reservations, this represents the number of rooms reserved */
     numberOfRooms?: number;
+
+    /** In hotel reservations, this represents the room class */
+    roomClass?: string;
 
     /** In flight reservations, this represents the details of the route */
     route?: {
@@ -222,6 +277,9 @@ type Reservation = {
 
         /** Passenger seat number */
         number: string;
+
+        /** Rail route name */
+        name?: string;
     };
 
     /** In car reservations, this represents the car dealership name */
@@ -232,6 +290,21 @@ type Reservation = {
 
     /** Payment type of the reservation */
     paymentType?: string;
+
+    /** Arrival gate details */
+    arrivalGate?: {
+        /** Arrival terminal number */
+        terminal: string;
+    };
+
+    /** Coach number for rail */
+    coachNumber?: string;
+
+    /** Seat number for rail */
+    seatNumber?: string;
+
+    /** This represents the details of the traveler */
+    travelerPersonalInfo?: TravelerPersonalDetails;
 };
 
 /** Model of trip reservation time details */
@@ -253,6 +326,9 @@ type ReservationTimeDetails = {
 
     /** Timezone offset */
     timezoneOffset?: string;
+
+    /** City name */
+    cityName?: string;
 };
 
 /** Model of airline company details */
@@ -306,6 +382,9 @@ type Transaction = OnyxCommon.OnyxValueWithOfflineFeedback<
         /** The original transaction amount */
         amount: number;
 
+        /** Selected attendees */
+        attendees?: Attendee[];
+
         /** The transaction tax amount */
         taxAmount?: number;
 
@@ -331,7 +410,7 @@ type Transaction = OnyxCommon.OnyxValueWithOfflineFeedback<
         errors?: OnyxCommon.Errors | ReceiptErrors;
 
         /** Server side errors keyed by microtime */
-        errorFields?: OnyxCommon.ErrorFields<'route'>;
+        errorFields?: OnyxCommon.ErrorFields;
 
         /** The name of the file used for a receipt (formerly receiptFilename) */
         filename?: string;
@@ -345,6 +424,9 @@ type Transaction = OnyxCommon.OnyxValueWithOfflineFeedback<
         /** The edited transaction amount */
         modifiedAmount?: number;
 
+        /** The edited attendees list */
+        modifiedAttendees?: Attendee[];
+
         /** The edited transaction date */
         modifiedCreated?: string;
 
@@ -356,9 +438,6 @@ type Transaction = OnyxCommon.OnyxValueWithOfflineFeedback<
 
         /** The edited waypoints for the distance expense */
         modifiedWaypoints?: WaypointCollection;
-
-        /** The edited distance rate for the distance request */
-        modifiedCustomUnitRateID?: string;
 
         /**
          * Used during the creation flow before the transaction is saved to the server and helps dictate where
@@ -451,8 +530,14 @@ type Transaction = OnyxCommon.OnyxValueWithOfflineFeedback<
 
         /** Whether the transaction is linked to a managed card */
         managedCard?: boolean;
+
+        /** The card transaction's posted date */
+        posted?: string;
+
+        /** The inserted time of the transaction */
+        inserted?: string;
     },
-    keyof Comment | keyof TransactionCustomUnit
+    keyof Comment | keyof TransactionCustomUnit | 'attendees'
 >;
 
 /** Keys of pending transaction fields */

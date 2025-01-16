@@ -1,6 +1,5 @@
 import React from 'react';
-import type {OnyxEntry} from 'react-native-onyx';
-import {withOnyx} from 'react-native-onyx';
+import {useOnyx} from 'react-native-onyx';
 import useLocalize from '@hooks/useLocalize';
 import useThemeStyles from '@hooks/useThemeStyles';
 import * as ApiUtils from '@libs/ApiUtils';
@@ -9,27 +8,28 @@ import * as Session from '@userActions/Session';
 import * as User from '@userActions/User';
 import CONFIG from '@src/CONFIG';
 import ONYXKEYS from '@src/ONYXKEYS';
-import type {Network as NetworkOnyx, User as UserOnyx} from '@src/types/onyx';
+import type {User as UserOnyx} from '@src/types/onyx';
 import Button from './Button';
-import {withNetwork} from './OnyxProvider';
 import Switch from './Switch';
 import TestCrash from './TestCrash';
 import TestToolRow from './TestToolRow';
 import Text from './Text';
 
-type TestToolMenuOnyxProps = {
-    /** User object in Onyx */
-    user: OnyxEntry<UserOnyx>;
+const USER_DEFAULT: UserOnyx = {
+    shouldUseStagingServer: undefined,
+    isSubscribedToNewsletter: false,
+    validated: false,
+    isFromPublicDomain: false,
+    isUsingExpensifyCard: false,
+    isDebugModeEnabled: false,
 };
 
-type TestToolMenuProps = TestToolMenuOnyxProps & {
-    /** Network object in Onyx */
-    network: OnyxEntry<NetworkOnyx>;
-};
-const USER_DEFAULT: UserOnyx = {shouldUseStagingServer: undefined, isSubscribedToNewsletter: false, validated: false, isFromPublicDomain: false, isUsingExpensifyCard: false};
-
-function TestToolMenu({user = USER_DEFAULT, network}: TestToolMenuProps) {
+function TestToolMenu() {
+    const [network] = useOnyx(ONYXKEYS.NETWORK);
+    const [user = USER_DEFAULT] = useOnyx(ONYXKEYS.USER);
+    const [isUsingImportedState] = useOnyx(ONYXKEYS.IS_USING_IMPORTED_STATE);
     const shouldUseStagingServer = user?.shouldUseStagingServer ?? ApiUtils.isUsingStagingApi();
+    const isDebugModeEnabled = !!user?.isDebugModeEnabled;
     const styles = useThemeStyles();
     const {translate} = useLocalize();
 
@@ -41,6 +41,15 @@ function TestToolMenu({user = USER_DEFAULT, network}: TestToolMenuProps) {
             >
                 {translate('initialSettingsPage.troubleshoot.testingPreferences')}
             </Text>
+            {/* When toggled the app will be put into debug mode. */}
+            <TestToolRow title={translate('initialSettingsPage.troubleshoot.debugMode')}>
+                <Switch
+                    accessibilityLabel={translate('initialSettingsPage.troubleshoot.debugMode')}
+                    isOn={isDebugModeEnabled}
+                    onToggle={() => User.setIsDebugModeEnabled(!isDebugModeEnabled)}
+                />
+            </TestToolRow>
+
             {/* Option to switch between staging and default api endpoints.
         This enables QA, internal testers and external devs to take advantage of sandbox environments for 3rd party services like Plaid and Onfido.
         This toggle is not rendered for internal devs as they make environment changes directly to the .env file. */}
@@ -60,6 +69,17 @@ function TestToolMenu({user = USER_DEFAULT, network}: TestToolMenuProps) {
                     accessibilityLabel="Force offline"
                     isOn={!!network?.shouldForceOffline}
                     onToggle={() => Network.setShouldForceOffline(!network?.shouldForceOffline)}
+                    disabled={!!isUsingImportedState || !!network?.shouldSimulatePoorConnection || network?.shouldFailAllRequests}
+                />
+            </TestToolRow>
+
+            {/* When toggled the app will randomly change internet connection every 2-5 seconds */}
+            <TestToolRow title={translate('initialSettingsPage.troubleshoot.simulatePoorConnection')}>
+                <Switch
+                    accessibilityLabel="Simulate poor internet connection"
+                    isOn={!!network?.shouldSimulatePoorConnection}
+                    onToggle={() => Network.setShouldSimulatePoorConnection(!network?.shouldSimulatePoorConnection, network?.poorConnectionTimeoutID)}
+                    disabled={!!isUsingImportedState || !!network?.shouldFailAllRequests || network?.shouldForceOffline}
                 />
             </TestToolRow>
 
@@ -69,6 +89,7 @@ function TestToolMenu({user = USER_DEFAULT, network}: TestToolMenuProps) {
                     accessibilityLabel="Simulate failing network requests"
                     isOn={!!network?.shouldFailAllRequests}
                     onToggle={() => Network.setShouldFailAllRequests(!network?.shouldFailAllRequests)}
+                    disabled={!!network?.shouldForceOffline || network?.shouldSimulatePoorConnection}
                 />
             </TestToolRow>
 
@@ -90,6 +111,15 @@ function TestToolMenu({user = USER_DEFAULT, network}: TestToolMenuProps) {
                 />
             </TestToolRow>
 
+            {/* Sends an expired session to the FE and invalidates the session by the same time in the BE. Action is delayed for 15s */}
+            <TestToolRow title={translate('initialSettingsPage.troubleshoot.authenticationStatus')}>
+                <Button
+                    small
+                    text={translate('initialSettingsPage.troubleshoot.invalidateWithDelay')}
+                    onPress={() => Session.expireSessionWithDelay()}
+                />
+            </TestToolRow>
+
             <TestCrash />
         </>
     );
@@ -97,10 +127,4 @@ function TestToolMenu({user = USER_DEFAULT, network}: TestToolMenuProps) {
 
 TestToolMenu.displayName = 'TestToolMenu';
 
-export default withNetwork()(
-    withOnyx<TestToolMenuProps, TestToolMenuOnyxProps>({
-        user: {
-            key: ONYXKEYS.USER,
-        },
-    })(TestToolMenu),
-);
+export default TestToolMenu;

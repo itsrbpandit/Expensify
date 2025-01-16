@@ -126,8 +126,11 @@ const deployerVerificationsHeader = '**Deployer verifications:**';
 const timingDashboardVerification =
     'I checked the [App Timing Dashboard](https://graphs.expensify.com/grafana/d/yj2EobAGz/app-timing?orgId=1) and verified this release does not cause a noticeable performance regression.';
 // eslint-disable-next-line max-len
-const firebaseVerification =
-    'I checked [Firebase Crashlytics](https://console.firebase.google.com/u/0/project/expensify-chat/crashlytics/app/android:com.expensify.chat/issues?state=open&time=last-seven-days&tag=all) and verified that this release does not introduce any new crashes. More detailed instructions on this verification can be found [here](https://stackoverflowteams.com/c/expensify/questions/15095/15096).';
+const firebaseVerificationCurrentRelease =
+    'I checked [Firebase Crashlytics](https://console.firebase.google.com/u/0/project/expensify-chat/crashlytics/app/android:com.expensify.chat/issues?state=open&time=last-seven-days&tag=all) for **this release version** and verified that this release does not introduce any new crashes. More detailed instructions on this verification can be found [here](https://stackoverflowteams.com/c/expensify/questions/15095/15096).';
+// eslint-disable-next-line max-len
+const firebaseVerificationPreviousRelease =
+    'I checked [Firebase Crashlytics](https://console.firebase.google.com/u/0/project/expensify-chat/crashlytics/app/android:com.expensify.chat/issues?state=open&time=last-seven-days&tag=all) for **the previous release version** and verified that the release did not introduce any new crashes. More detailed instructions on this verification can be found [here](https://stackoverflowteams.com/c/expensify/questions/15095/15096).';
 // eslint-disable-next-line max-len
 const ghVerification = 'I checked [GitHub Status](https://www.githubstatus.com/) and verified there is no reported incident with Actions.';
 const ccApplauseLeads = 'cc @Expensify/applauseleads\r\n';
@@ -145,13 +148,13 @@ describe('createOrUpdateStagingDeployCash', () => {
         // eslint-disable-next-line max-len
         body:
             `${baseExpectedOutput('1.0.1-0')}` +
-            `${closedCheckbox}${basePRList[0]}` +
-            `${lineBreak}${closedCheckbox}${basePRList[1]}` +
-            `${lineBreak}${closedCheckbox}${basePRList[2]}${lineBreak}` +
+            `${closedCheckbox}${basePRList.at(0)}` +
+            `${lineBreak}${closedCheckbox}${basePRList.at(1)}` +
+            `${lineBreak}${closedCheckbox}${basePRList.at(2)}${lineBreak}` +
             `${lineBreakDouble}${deployBlockerHeader}` +
-            `${lineBreak}${closedCheckbox}${basePRList[0]}` +
-            `${lineBreak}${closedCheckbox}${basePRList[3]}` +
-            `${lineBreak}${closedCheckbox}${basePRList[4]}` +
+            `${lineBreak}${closedCheckbox}${basePRList.at(0)}` +
+            `${lineBreak}${closedCheckbox}${basePRList.at(3)}` +
+            `${lineBreak}${closedCheckbox}${basePRList.at(4)}` +
             `${lineBreakDouble}${ccApplauseLeads}`,
     };
 
@@ -194,12 +197,13 @@ describe('createOrUpdateStagingDeployCash', () => {
             assignees: [CONST.APPLAUSE_BOT],
             body:
                 `${baseExpectedOutput()}` +
-                `${openCheckbox}${basePRList[5]}` +
-                `${lineBreak}${openCheckbox}${basePRList[6]}` +
-                `${lineBreak}${openCheckbox}${basePRList[7]}${lineBreak}` +
+                `${openCheckbox}${basePRList.at(5)}` +
+                `${lineBreak}${openCheckbox}${basePRList.at(6)}` +
+                `${lineBreak}${openCheckbox}${basePRList.at(7)}${lineBreak}` +
                 `${lineBreakDouble}${deployerVerificationsHeader}` +
                 `${lineBreak}${openCheckbox}${timingDashboardVerification}` +
-                `${lineBreak}${openCheckbox}${firebaseVerification}` +
+                `${lineBreak}${openCheckbox}${firebaseVerificationCurrentRelease}` +
+                `${lineBreak}${openCheckbox}${firebaseVerificationPreviousRelease}` +
                 `${lineBreak}${openCheckbox}${ghVerification}` +
                 `${lineBreakDouble}${ccApplauseLeads}`,
         });
@@ -214,16 +218,17 @@ describe('createOrUpdateStagingDeployCash', () => {
             // eslint-disable-next-line max-len
             body:
                 `${baseExpectedOutput()}` +
-                `${openCheckbox}${basePRList[5]}` +
-                `${lineBreak}${closedCheckbox}${basePRList[6]}` +
-                `${lineBreak}${openCheckbox}${basePRList[7]}${lineBreak}` +
+                `${openCheckbox}${basePRList.at(5)}` +
+                `${lineBreak}${closedCheckbox}${basePRList.at(6)}` +
+                `${lineBreak}${openCheckbox}${basePRList.at(7)}${lineBreak}` +
                 `${lineBreakDouble}${deployBlockerHeader}` +
-                `${lineBreak}${openCheckbox}${basePRList[5]}` +
-                `${lineBreak}${openCheckbox}${basePRList[8]}` +
-                `${lineBreak}${closedCheckbox}${basePRList[9]}${lineBreak}` +
+                `${lineBreak}${openCheckbox}${basePRList.at(5)}` +
+                `${lineBreak}${openCheckbox}${basePRList.at(8)}` +
+                `${lineBreak}${closedCheckbox}${basePRList.at(9)}${lineBreak}` +
                 `${lineBreakDouble}${deployerVerificationsHeader}` +
                 `${lineBreak}${closedCheckbox}${timingDashboardVerification}` +
-                `${lineBreak}${closedCheckbox}${firebaseVerification}` +
+                `${lineBreak}${closedCheckbox}${firebaseVerificationCurrentRelease}` +
+                `${lineBreak}${closedCheckbox}${firebaseVerificationPreviousRelease}` +
                 `${lineBreak}${closedCheckbox}${ghVerification}` +
                 `${lineBreakDouble}${ccApplauseLeads}`,
             state: 'open',
@@ -309,21 +314,22 @@ describe('createOrUpdateStagingDeployCash', () => {
                 // eslint-disable-next-line max-len
                 body:
                     `${baseExpectedOutput('1.0.2-2')}` +
-                    `${openCheckbox}${basePRList[5]}` +
-                    `${lineBreak}${closedCheckbox}${basePRList[6]}` +
-                    `${lineBreak}${openCheckbox}${basePRList[7]}` +
-                    `${lineBreak}${openCheckbox}${basePRList[8]}` +
-                    `${lineBreak}${openCheckbox}${basePRList[9]}${lineBreak}` +
+                    `${openCheckbox}${basePRList.at(5)}` +
+                    `${lineBreak}${closedCheckbox}${basePRList.at(6)}` +
+                    `${lineBreak}${openCheckbox}${basePRList.at(7)}` +
+                    `${lineBreak}${openCheckbox}${basePRList.at(8)}` +
+                    `${lineBreak}${openCheckbox}${basePRList.at(9)}${lineBreak}` +
                     `${lineBreakDouble}${deployBlockerHeader}` +
-                    `${lineBreak}${openCheckbox}${basePRList[5]}` +
-                    `${lineBreak}${openCheckbox}${basePRList[8]}` +
-                    `${lineBreak}${closedCheckbox}${basePRList[9]}` +
-                    `${lineBreak}${openCheckbox}${baseIssueList[0]}` +
-                    `${lineBreak}${openCheckbox}${baseIssueList[1]}${lineBreak}` +
+                    `${lineBreak}${openCheckbox}${basePRList.at(5)}` +
+                    `${lineBreak}${openCheckbox}${basePRList.at(8)}` +
+                    `${lineBreak}${closedCheckbox}${basePRList.at(9)}` +
+                    `${lineBreak}${openCheckbox}${baseIssueList.at(0)}` +
+                    `${lineBreak}${openCheckbox}${baseIssueList.at(1)}${lineBreak}` +
                     `${lineBreakDouble}${deployerVerificationsHeader}` +
                     // Note: these will be unchecked with a new app version, and that's intentional
                     `${lineBreak}${openCheckbox}${timingDashboardVerification}` +
-                    `${lineBreak}${openCheckbox}${firebaseVerification}` +
+                    `${lineBreak}${openCheckbox}${firebaseVerificationCurrentRelease}` +
+                    `${lineBreak}${openCheckbox}${firebaseVerificationPreviousRelease}` +
                     `${lineBreak}${openCheckbox}${ghVerification}` +
                     `${lineBreakDouble}${ccApplauseLeads}`,
             });
@@ -385,18 +391,19 @@ describe('createOrUpdateStagingDeployCash', () => {
                 // eslint-disable-next-line max-len
                 body:
                     `${baseExpectedOutput('1.0.2-1')}` +
-                    `${openCheckbox}${basePRList[5]}` +
-                    `${lineBreak}${closedCheckbox}${basePRList[6]}` +
-                    `${lineBreak}${openCheckbox}${basePRList[7]}${lineBreak}` +
+                    `${openCheckbox}${basePRList.at(5)}` +
+                    `${lineBreak}${closedCheckbox}${basePRList.at(6)}` +
+                    `${lineBreak}${openCheckbox}${basePRList.at(7)}${lineBreak}` +
                     `${lineBreakDouble}${deployBlockerHeader}` +
-                    `${lineBreak}${closedCheckbox}${basePRList[5]}` +
-                    `${lineBreak}${openCheckbox}${basePRList[8]}` +
-                    `${lineBreak}${closedCheckbox}${basePRList[9]}` +
-                    `${lineBreak}${openCheckbox}${baseIssueList[0]}` +
-                    `${lineBreak}${openCheckbox}${baseIssueList[1]}${lineBreak}` +
+                    `${lineBreak}${closedCheckbox}${basePRList.at(5)}` +
+                    `${lineBreak}${openCheckbox}${basePRList.at(8)}` +
+                    `${lineBreak}${closedCheckbox}${basePRList.at(9)}` +
+                    `${lineBreak}${openCheckbox}${baseIssueList.at(0)}` +
+                    `${lineBreak}${openCheckbox}${baseIssueList.at(1)}${lineBreak}` +
                     `${lineBreakDouble}${deployerVerificationsHeader}` +
                     `${lineBreak}${closedCheckbox}${timingDashboardVerification}` +
-                    `${lineBreak}${closedCheckbox}${firebaseVerification}` +
+                    `${lineBreak}${closedCheckbox}${firebaseVerificationCurrentRelease}` +
+                    `${lineBreak}${closedCheckbox}${firebaseVerificationPreviousRelease}` +
                     `${lineBreak}${closedCheckbox}${ghVerification}` +
                     `${lineBreakDouble}${ccApplauseLeads}`,
             });

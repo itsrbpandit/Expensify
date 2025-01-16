@@ -6,12 +6,14 @@ import type {OnyxEntry, OnyxUpdate} from 'react-native-onyx';
 import Onyx from 'react-native-onyx';
 import type {ValueOf} from 'type-fest';
 import * as PersistedRequests from '@libs/actions/PersistedRequests';
+import {resolveDuplicationConflictAction} from '@libs/actions/RequestConflictUtils';
 import * as API from '@libs/API';
 import type {
     AuthenticatePusherParams,
     BeginAppleSignInParams,
     BeginGoogleSignInParams,
     BeginSignInParams,
+    DisableTwoFactorAuthParams,
     RequestAccountValidationLinkParams,
     RequestNewValidateCodeParams,
     RequestUnlinkValidationLinkParams,
@@ -33,11 +35,13 @@ import * as MainQueue from '@libs/Network/MainQueue';
 import * as NetworkStore from '@libs/Network/NetworkStore';
 import NetworkConnection from '@libs/NetworkConnection';
 import * as Pusher from '@libs/Pusher/pusher';
-import * as ReportUtils from '@libs/ReportUtils';
+import {getReportIDFromLink, parseReportRouteParams as parseReportRouteParamsReportUtils} from '@libs/ReportUtils';
 import * as SessionUtils from '@libs/SessionUtils';
+import {clearSoundAssetsCache} from '@libs/Sound';
 import Timers from '@libs/Timers';
 import {hideContextMenu} from '@pages/home/report/ContextMenu/ReportActionContextMenu';
-import {KEYS_TO_PRESERVE, openApp} from '@userActions/App';
+import {KEYS_TO_PRESERVE, openApp, reconnectApp} from '@userActions/App';
+import {KEYS_TO_PRESERVE_DELEGATE_ACCESS} from '@userActions/Delegate';
 import * as Device from '@userActions/Device';
 import * as PriorityMode from '@userActions/PriorityMode';
 import redirectToSignIn from '@userActions/SignInRedirect';
@@ -50,8 +54,8 @@ import type {HybridAppRoute, Route} from '@src/ROUTES';
 import ROUTES from '@src/ROUTES';
 import SCREENS from '@src/SCREENS';
 import type Credentials from '@src/types/onyx/Credentials';
-import type {AutoAuthState} from '@src/types/onyx/Session';
 import type Session from '@src/types/onyx/Session';
+import type {AutoAuthState} from '@src/types/onyx/Session';
 import clearCache from './clearCache';
 import updateSessionAuthTokens from './updateSessionAuthTokens';
 
@@ -61,6 +65,9 @@ Onyx.connect({
     key: ONYXKEYS.SESSION,
     callback: (value) => {
         session = value ?? {};
+        if (!session.creationDate) {
+            session.creationDate = new Date().getTime();
+        }
         if (session.authToken && authPromiseResolver) {
             authPromiseResolver(true);
             authPromiseResolver = null;
@@ -110,6 +117,7 @@ function setSupportAuthToken(supportAuthToken: string, email: string, accountID:
         authToken: supportAuthToken,
         email,
         accountID,
+        creationDate: new Date().getTime(),
     }).then(() => {
         Log.info('[Supportal] Authtoken set');
     });
@@ -179,7 +187,14 @@ function signOut() {
         shouldRetry: false,
     };
 
-    API.write(WRITE_COMMANDS.LOG_OUT, params);
+    API.write(
+        WRITE_COMMANDS.LOG_OUT,
+        params,
+        {},
+        {
+            checkAndFixConflictingRequest: (persistedRequests) => resolveDuplicationConflictAction(persistedRequests, (request) => request.command === WRITE_COMMANDS.LOG_OUT),
+        },
+    );
 }
 
 /**
@@ -200,13 +215,21 @@ function hasAuthToken(): boolean {
     return !!session.authToken;
 }
 
+/**
+ * Indicates if the session which creation date is in parameter is expired
+ * @param sessionCreationDate the session creation date timestamp
+ */
+function isExpiredSession(sessionCreationDate: number): boolean {
+    return new Date().getTime() - sessionCreationDate >= CONST.SESSION_EXPIRATION_TIME_MS;
+}
+
 function signOutAndRedirectToSignIn(shouldResetToHome?: boolean, shouldStashSession?: boolean, killHybridApp = true) {
     Log.info('Redirecting to Sign In because signOut() was called');
     hideContextMenu(false);
     if (!isAnonymousUser()) {
         // In the HybridApp, we want the Old Dot to handle the sign out process
         if (NativeModules.HybridAppModule && killHybridApp) {
-            NativeModules.HybridAppModule.closeReactNativeApp(true);
+            NativeModules.HybridAppModule.closeReactNativeApp(true, false);
             return;
         }
         // We'll only call signOut if we're not stashing the session and this is not a supportal session,
@@ -259,7 +282,7 @@ function signOutAndRedirectToSignIn(shouldResetToHome?: boolean, shouldStashSess
         }
         Navigation.navigate(ROUTES.SIGN_IN_MODAL);
         Linking.getInitialURL().then((url) => {
-            const reportID = ReportUtils.getReportIDFromLink(url);
+            const reportID = getReportIDFromLink(url);
             if (reportID) {
                 Onyx.merge(ONYXKEYS.LAST_OPENED_PUBLIC_ROOM_ID, reportID);
             }
@@ -419,6 +442,21 @@ function beginSignIn(email: string) {
 }
 
 /**
+ * Create Onyx update to clean up anonymous user data
+ */
+function buildOnyxDataToCleanUpAnonymousUser() {
+    const data: Record<string, null> = {};
+    if (session.authTokenType === CONST.AUTH_TOKEN_TYPES.ANONYMOUS && session.accountID) {
+        data[session.accountID] = null;
+    }
+    return {
+        key: ONYXKEYS.PERSONAL_DETAILS_LIST,
+        value: data,
+        onyxMethod: Onyx.METHOD.MERGE,
+    };
+}
+
+/**
  * Creates an account for the new user and signs them into the application with the newly created account.
  *
  */
@@ -434,6 +472,8 @@ function signUpUser() {
         },
     ];
 
+    const onyxOperationToCleanUpAnonymousUser = buildOnyxDataToCleanUpAnonymousUser();
+
     const successData: OnyxUpdate[] = [
         {
             onyxMethod: Onyx.METHOD.MERGE,
@@ -442,6 +482,7 @@ function signUpUser() {
                 isLoading: false,
             },
         },
+        onyxOperationToCleanUpAnonymousUser,
     ];
 
     const failureData: OnyxUpdate[] = [
@@ -457,6 +498,85 @@ function signUpUser() {
     const params: SignUpUserParams = {email: credentials.login, preferredLocale};
 
     API.write(WRITE_COMMANDS.SIGN_UP_USER, params, {optimisticData, successData, failureData});
+}
+
+function getLastUpdateIDAppliedToClient(): Promise<number> {
+    return new Promise((resolve) => {
+        Onyx.connect({
+            key: ONYXKEYS.ONYX_UPDATES_LAST_UPDATE_ID_APPLIED_TO_CLIENT,
+            callback: (value) => resolve(value ?? 0),
+        });
+    });
+}
+
+function signInAfterTransitionFromOldDot(transitionURL: string) {
+    const [route, queryParams] = transitionURL.split('?');
+
+    const {
+        email,
+        authToken,
+        encryptedAuthToken,
+        accountID,
+        autoGeneratedLogin,
+        autoGeneratedPassword,
+        clearOnyxOnStart,
+        completedHybridAppOnboarding,
+        nudgeMigrationTimestamp,
+        isSingleNewDotEntry,
+        primaryLogin,
+        shouldRemoveDelegatedAccess,
+    } = Object.fromEntries(
+        queryParams.split('&').map((param) => {
+            const [key, value] = param.split('=');
+            return [key, value];
+        }),
+    );
+
+    const clearOnyxForNewAccount = () => {
+        if (clearOnyxOnStart !== 'true') {
+            return Promise.resolve();
+        }
+
+        return Onyx.clear(KEYS_TO_PRESERVE);
+    };
+
+    const setSessionDataAndOpenApp = new Promise<Route>((resolve) => {
+        clearOnyxForNewAccount()
+            .then(() => {
+                if (!shouldRemoveDelegatedAccess) {
+                    return;
+                }
+                return Onyx.clear(KEYS_TO_PRESERVE_DELEGATE_ACCESS);
+            })
+            .then(() =>
+                Onyx.multiSet({
+                    [ONYXKEYS.SESSION]: {email, authToken, encryptedAuthToken: decodeURIComponent(encryptedAuthToken), accountID: Number(accountID)},
+                    [ONYXKEYS.ACCOUNT]: {primaryLogin},
+                    [ONYXKEYS.CREDENTIALS]: {autoGeneratedLogin, autoGeneratedPassword},
+                    [ONYXKEYS.IS_SINGLE_NEW_DOT_ENTRY]: isSingleNewDotEntry === 'true',
+                    [ONYXKEYS.NVP_TRYNEWDOT]: {
+                        classicRedirect: {completedHybridAppOnboarding: completedHybridAppOnboarding === 'true'},
+                        nudgeMigration: nudgeMigrationTimestamp ? {timestamp: new Date(nudgeMigrationTimestamp)} : undefined,
+                    },
+                }),
+            )
+            .then(() => {
+                if (clearOnyxOnStart === 'true') {
+                    return openApp();
+                }
+                return getLastUpdateIDAppliedToClient().then((lastUpdateId) => {
+                    return reconnectApp(lastUpdateId);
+                });
+            })
+            .catch((error) => {
+                Log.hmmm('[HybridApp] Initialization of HybridApp has failed. Forcing transition', {error});
+            })
+            .finally(() => {
+                resolve(`${route}?singleNewDotEntry=${isSingleNewDotEntry}` as Route);
+            });
+    });
+
+    return setSessionDataAndOpenApp;
 }
 
 /**
@@ -487,14 +607,9 @@ function beginGoogleSignIn(token: string | null) {
  * Will create a temporary login for the user in the passed authenticate response which is used when
  * re-authenticating after an authToken expires.
  */
-function signInWithShortLivedAuthToken(email: string, authToken: string) {
+function signInWithShortLivedAuthToken(authToken: string) {
     const {optimisticData, finallyData} = getShortLivedLoginParams();
-
-    // If the user is signing in with a different account from the current app, should not pass the auto-generated login as it may be tied to the old account.
-    // scene 1: the user is transitioning to newDot from a different account on oldDot.
-    // scene 2: the user is transitioning to desktop app from a different account on web app.
-    const oldPartnerUserID = credentials.login === email && credentials.autoGeneratedLogin ? credentials.autoGeneratedLogin : '';
-    API.read(READ_COMMANDS.SIGN_IN_WITH_SHORT_LIVED_AUTH_TOKEN, {authToken, oldPartnerUserID, skipReauthentication: true}, {optimisticData, finallyData});
+    API.read(READ_COMMANDS.SIGN_IN_WITH_SHORT_LIVED_AUTH_TOKEN, {authToken, skipReauthentication: true}, {optimisticData, finallyData});
 }
 
 /**
@@ -517,6 +632,8 @@ function signIn(validateCode: string, twoFactorAuthCode?: string) {
         },
     ];
 
+    const onyxOperationToCleanUpAnonymousUser = buildOnyxDataToCleanUpAnonymousUser();
+
     const successData: OnyxUpdate[] = [
         {
             onyxMethod: Onyx.METHOD.MERGE,
@@ -533,6 +650,7 @@ function signIn(validateCode: string, twoFactorAuthCode?: string) {
                 validateCode,
             },
         },
+        onyxOperationToCleanUpAnonymousUser,
     ];
 
     const failureData: OnyxUpdate[] = [
@@ -567,6 +685,7 @@ function signInWithValidateCode(accountID: number, code: string, twoFactorAuthCo
     // If this is called from the 2fa step, get the validateCode directly from onyx
     // instead of the one passed from the component state because the state is changing when this method is called.
     const validateCode = twoFactorAuthCode ? credentials.validateCode : code;
+    const onyxOperationToCleanUpAnonymousUser = buildOnyxDataToCleanUpAnonymousUser();
 
     const optimisticData: OnyxUpdate[] = [
         {
@@ -607,6 +726,7 @@ function signInWithValidateCode(accountID: number, code: string, twoFactorAuthCo
             key: ONYXKEYS.SESSION,
             value: {autoAuthState: CONST.AUTO_AUTH_STATE.JUST_SIGNED_IN},
         },
+        onyxOperationToCleanUpAnonymousUser,
     ];
 
     const failureData: OnyxUpdate[] = [
@@ -659,7 +779,18 @@ function invalidateCredentials() {
 
 function invalidateAuthToken() {
     NetworkStore.setAuthToken('pizza');
-    Onyx.merge(ONYXKEYS.SESSION, {authToken: 'pizza'});
+    Onyx.merge(ONYXKEYS.SESSION, {authToken: 'pizza', encryptedAuthToken: 'pizza'});
+}
+
+/**
+ * Send an expired session to FE and invalidate the session in the BE perspective. Action is delayed for 15s
+ */
+function expireSessionWithDelay() {
+    // expires the session after 15s
+    setTimeout(() => {
+        NetworkStore.setAuthToken('pizza');
+        Onyx.merge(ONYXKEYS.SESSION, {authToken: 'pizza', encryptedAuthToken: 'pizza', creationDate: new Date().getTime() - CONST.SESSION_EXPIRATION_TIME_MS});
+    }, 15000);
 }
 
 /**
@@ -709,6 +840,7 @@ function cleanupSession() {
     clearCache().then(() => {
         Log.info('Cleared all cache data', true, {}, true);
     });
+    clearSoundAssetsCache();
     Timing.clearData();
 }
 
@@ -877,7 +1009,7 @@ function unlinkLogin(accountID: number, validateCode: string) {
 /**
  * Toggles two-factor authentication based on the `enable` parameter
  */
-function toggleTwoFactorAuth(enable: boolean) {
+function toggleTwoFactorAuth(enable: boolean, twoFactorAuthCode = '') {
     const optimisticData: OnyxUpdate[] = [
         {
             onyxMethod: Onyx.METHOD.MERGE,
@@ -894,6 +1026,9 @@ function toggleTwoFactorAuth(enable: boolean) {
             key: ONYXKEYS.ACCOUNT,
             value: {
                 isLoading: false,
+
+                // When disabling 2FA, the user needs to end up on the step that confirms the setting was disabled
+                twoFactorAuthStep: enable ? undefined : CONST.TWO_FACTOR_AUTH_STEPS.DISABLED,
             },
         },
     ];
@@ -908,7 +1043,16 @@ function toggleTwoFactorAuth(enable: boolean) {
         },
     ];
 
-    API.write(enable ? WRITE_COMMANDS.ENABLE_TWO_FACTOR_AUTH : WRITE_COMMANDS.DISABLE_TWO_FACTOR_AUTH, null, {optimisticData, successData, failureData});
+    if (enable) {
+        API.write(WRITE_COMMANDS.ENABLE_TWO_FACTOR_AUTH, null, {optimisticData, successData, failureData});
+        return;
+    }
+
+    // A 2FA code is required to disable 2FA
+    const params: DisableTwoFactorAuthParams = {twoFactorAuthCode};
+
+    // eslint-disable-next-line rulesdir/no-multiple-api-calls
+    API.write(WRITE_COMMANDS.DISABLE_TWO_FACTOR_AUTH, params, {optimisticData, successData, failureData});
 }
 
 function updateAuthTokenAndOpenApp(authToken?: string, encryptedAuthToken?: string) {
@@ -1024,11 +1168,11 @@ function signInWithValidateCodeAndNavigate(accountID: number, validateCode: stri
  */
 
 const canAnonymousUserAccessRoute = (route: string) => {
-    const reportID = ReportUtils.getReportIDFromLink(route);
+    const reportID = getReportIDFromLink(route);
     if (reportID) {
         return true;
     }
-    const parsedReportRouteParams = ReportUtils.parseReportRouteParams(route);
+    const parsedReportRouteParams = parseReportRouteParamsReportUtils(route);
     let routeRemovedReportId = route;
     if ((parsedReportRouteParams as {reportID: string})?.reportID) {
         routeRemovedReportId = route.replace((parsedReportRouteParams as {reportID: string})?.reportID, ':reportID');
@@ -1044,6 +1188,43 @@ const canAnonymousUserAccessRoute = (route: string) => {
     }
     return false;
 };
+
+/**
+ * Validates user account and returns a list of accessible policies.
+ */
+function validateUserAndGetAccessiblePolicies(validateCode: string) {
+    const optimisticData: OnyxUpdate[] = [
+        {
+            onyxMethod: Onyx.METHOD.MERGE,
+            key: ONYXKEYS.JOINABLE_POLICIES_LOADING,
+            value: true,
+        },
+    ];
+
+    const successData: OnyxUpdate[] = [
+        {
+            onyxMethod: Onyx.METHOD.MERGE,
+            key: ONYXKEYS.JOINABLE_POLICIES_LOADING,
+            value: false,
+        },
+    ];
+
+    const failureData: OnyxUpdate[] = [
+        {
+            onyxMethod: Onyx.METHOD.MERGE,
+            key: ONYXKEYS.JOINABLE_POLICIES_LOADING,
+            value: false,
+        },
+    ];
+
+    API.write(WRITE_COMMANDS.VALIDATE_USER_AND_GET_ACCESSIBLE_POLICIES, {validateCode}, {optimisticData, successData, failureData});
+}
+
+function isUserOnPrivateDomain() {
+    // TODO: Implement this function later, and skip the check for now
+    // return !!session?.email && !LoginUtils.isEmailPublicDomain(session?.email);
+    return false;
+}
 
 export {
     beginSignIn,
@@ -1071,14 +1252,19 @@ export {
     reauthenticatePusher,
     invalidateCredentials,
     invalidateAuthToken,
+    expireSessionWithDelay,
     isAnonymousUser,
     toggleTwoFactorAuth,
     validateTwoFactorAuth,
     waitForUserSignIn,
     hasAuthToken,
+    isExpiredSession,
     canAnonymousUserAccessRoute,
     signInWithSupportAuthToken,
     isSupportAuthToken,
     hasStashedSession,
     signUpUser,
+    signInAfterTransitionFromOldDot,
+    validateUserAndGetAccessiblePolicies,
+    isUserOnPrivateDomain,
 };

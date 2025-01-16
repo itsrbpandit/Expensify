@@ -1,4 +1,6 @@
+/* eslint-disable max-classes-per-file */
 import '@shopify/flash-list/jestSetup';
+import type * as RNAppLogs from 'react-native-app-logs';
 import 'react-native-gesture-handler/jestSetup';
 import type * as RNKeyboardController from 'react-native-keyboard-controller';
 import mockStorage from 'react-native-onyx/dist/storage/__mocks__';
@@ -12,7 +14,7 @@ mockFSLibrary();
 
 // This mock is required as per setup instructions for react-navigation testing
 // https://reactnavigation.org/docs/testing/#mocking-native-modules
-jest.mock('react-native/Libraries/Animated/NativeAnimatedHelper');
+jest.mock('react-native/src/private/animated/NativeAnimatedHelper');
 
 // Mock react-native-onyx storage layer because the SQLite storage layer doesn't work in jest.
 // Mocking this file in __mocks__ does not work because jest doesn't support mocking files that are not directly used in the testing project,
@@ -34,7 +36,7 @@ jest.mock('react-native/Libraries/LogBox/LogBox', () => ({
 
 // Turn off the console logs for timing events. They are not relevant for unit tests and create a lot of noise
 jest.spyOn(console, 'debug').mockImplementation((...params: string[]) => {
-    if (params[0].startsWith('Timing:')) {
+    if (params.at(0)?.startsWith('Timing:')) {
         return;
     }
 
@@ -74,7 +76,33 @@ jest.mock('react-native-reanimated', () => ({
 
 jest.mock('react-native-keyboard-controller', () => require<typeof RNKeyboardController>('react-native-keyboard-controller/jest'));
 
+jest.mock('react-native-app-logs', () => require<typeof RNAppLogs>('react-native-app-logs/jest'));
+
 jest.mock('@src/libs/actions/Timing', () => ({
     start: jest.fn(),
     end: jest.fn(),
 }));
+
+jest.mock('../modules/background-task/src/NativeReactNativeBackgroundTask', () => ({
+    defineTask: jest.fn(),
+    onBackgroundTaskExecution: jest.fn(),
+}));
+
+// This makes FlatList render synchronously for easier testing.
+jest.mock(
+    '@react-native/virtualized-lists/Interaction/Batchinator',
+    () =>
+        class SyncBachinator {
+            #callback: () => void;
+
+            constructor(callback: () => void) {
+                this.#callback = callback;
+            }
+
+            schedule() {
+                this.#callback();
+            }
+
+            dispose() {}
+        },
+);
