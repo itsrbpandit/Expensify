@@ -4,7 +4,7 @@ import type {Reservation, ReservationType} from '@src/types/onyx/Transaction';
 import type Transaction from '@src/types/onyx/Transaction';
 import type IconAsset from '@src/types/utils/IconAsset';
 
-function getTripReservationIcon(reservationType: ReservationType): IconAsset {
+function getTripReservationIcon(reservationType?: ReservationType): IconAsset {
     switch (reservationType) {
         case CONST.RESERVATION_TYPE.FLIGHT:
             return Expensicons.Plane;
@@ -12,16 +12,27 @@ function getTripReservationIcon(reservationType: ReservationType): IconAsset {
             return Expensicons.Bed;
         case CONST.RESERVATION_TYPE.CAR:
             return Expensicons.CarWithKey;
+        case CONST.RESERVATION_TYPE.TRAIN:
+            return Expensicons.Train;
         default:
             return Expensicons.Luggage;
     }
 }
 
-function getReservationsFromTripTransactions(transactions: Transaction[]): Reservation[] {
+type ReservationData = {reservation: Reservation; transactionID: string; reportID: string | undefined; reservationIndex: number};
+
+function getReservationsFromTripTransactions(transactions: Transaction[]): ReservationData[] {
     return transactions
-        .map((item) => item?.receipt?.reservationList ?? [])
-        .filter((item) => item.length > 0)
-        .flat();
+        .flatMap(
+            (item) =>
+                item?.receipt?.reservationList?.map((reservation, reservationIndex) => ({
+                    reservation,
+                    transactionID: item.transactionID,
+                    reportID: item.reportID,
+                    reservationIndex,
+                })) ?? [],
+        )
+        .sort((a, b) => new Date(a.reservation.start.date).getTime() - new Date(b.reservation.start.date).getTime());
 }
 
 function getTripEReceiptIcon(transaction?: Transaction): IconAsset | undefined {
@@ -39,3 +50,4 @@ function getTripEReceiptIcon(transaction?: Transaction): IconAsset | undefined {
 }
 
 export {getTripReservationIcon, getReservationsFromTripTransactions, getTripEReceiptIcon};
+export type {ReservationData};

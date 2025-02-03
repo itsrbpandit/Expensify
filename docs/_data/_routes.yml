@@ -119,6 +119,11 @@ platforms:
         icon: /assets/images/money-into-wallet.svg
         description: Learn more about expense tracking and submission.
 
+      - href: connect-credit-cards
+        title: Connect Credit Cards
+        icon: /assets/images/bank-card.svg
+        description: Track credit card transactions and reconcile company cards.
+        
       - href: expensify-card
         title: Expensify Card
         icon: /assets/images/hand-card.svg
@@ -138,3 +143,9 @@ platforms:
         title: Settings
         icon: /assets/images/gears.svg
         description: Manage profile settings and notifications.
+        
+      - href: billing-and-subscriptions
+        title: Expensify Billing & Subscriptions
+        icon: /assets/images/subscription-annual.svg
+        description: Review Expensify's subscription options, plan types, and payment methods.
+        

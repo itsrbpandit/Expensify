@@ -14,7 +14,6 @@ import type {
 import {READ_COMMANDS, WRITE_COMMANDS} from '@libs/API/types';
 import * as ErrorUtils from '@libs/ErrorUtils';
 import Log from '@libs/Log';
-import * as ReportConnection from '@libs/ReportConnection';
 import * as ReportUtils from '@libs/ReportUtils';
 import * as WorkspaceReportFieldUtils from '@libs/WorkspaceReportFieldUtils';
 import CONST from '@src/CONST';
@@ -36,6 +35,15 @@ Onyx.connect({
 
         listValues = value[INPUT_IDS.LIST_VALUES] ?? [];
         disabledListValues = value[INPUT_IDS.DISABLED_LIST_VALUES] ?? [];
+    },
+});
+
+let allReports: OnyxCollection<Report>;
+Onyx.connect({
+    key: ONYXKEYS.COLLECTION.REPORT,
+    waitForCollectionCallback: true,
+    callback: (value) => {
+        allReports = value;
     },
 });
 
@@ -179,9 +187,7 @@ function createReportField(policyID: string, {name, type, initialValue}: CreateR
         value: type === CONST.REPORT_FIELD_TYPES.LIST ? CONST.REPORT_FIELD_TYPES.LIST : null,
     };
 
-    const policyExpenseReports = Object.values(ReportConnection.getAllReports() ?? {}).filter(
-        (report) => report?.policyID === policyID && report.type === CONST.REPORT.TYPE.EXPENSE,
-    ) as Report[];
+    const policyExpenseReports = Object.values(allReports ?? {}).filter((report) => report?.policyID === policyID && report.type === CONST.REPORT.TYPE.EXPENSE) as Report[];
 
     const optimisticData = [
         {
@@ -383,7 +389,7 @@ function updateReportFieldListValueEnabled(policyID: string, reportFieldID: stri
 
     valueIndexes.forEach((valueIndex) => {
         updatedReportField.disabledOptions[valueIndex] = !enabled;
-        const shouldResetDefaultValue = !enabled && reportField.defaultValue === reportField.values[valueIndex];
+        const shouldResetDefaultValue = !enabled && reportField.defaultValue === reportField.values.at(valueIndex);
 
         if (shouldResetDefaultValue) {
             updatedReportField.defaultValue = '';
@@ -460,7 +466,7 @@ function removeReportFieldListValue(policyID: string, reportFieldID: string, val
     valueIndexes
         .sort((a, b) => b - a)
         .forEach((valueIndex) => {
-            const shouldResetDefaultValue = reportField.defaultValue === reportField.values[valueIndex];
+            const shouldResetDefaultValue = reportField.defaultValue === reportField.values.at(valueIndex);
 
             if (shouldResetDefaultValue) {
                 updatedReportField.defaultValue = '';

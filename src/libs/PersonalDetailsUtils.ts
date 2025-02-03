@@ -52,6 +52,8 @@ const regexMergedAccount = new RegExp(CONST.REGEX.MERGED_ACCOUNT_PREFIX);
 function getDisplayNameOrDefault(passedPersonalDetails?: Partial<PersonalDetails> | null, defaultValue = '', shouldFallbackToHidden = true, shouldAddCurrentUserPostfix = false): string {
     let displayName = passedPersonalDetails?.displayName ?? '';
 
+    let login = passedPersonalDetails?.login ?? '';
+
     // If the displayName starts with the merged account prefix, remove it.
     if (regexMergedAccount.test(displayName)) {
         // Remove the merged account prefix from the displayName.
@@ -60,8 +62,11 @@ function getDisplayNameOrDefault(passedPersonalDetails?: Partial<PersonalDetails
 
     // If the displayName is not set by the user, the backend sets the diplayName same as the login so
     // we need to remove the sms domain from the displayName if it is an sms login.
-    if (displayName === passedPersonalDetails?.login && Str.isSMSLogin(passedPersonalDetails?.login)) {
-        displayName = Str.removeSMSDomain(displayName);
+    if (Str.isSMSLogin(login)) {
+        if (displayName === login) {
+            displayName = Str.removeSMSDomain(displayName);
+        }
+        login = Str.removeSMSDomain(login);
     }
 
     if (shouldAddCurrentUserPostfix && !!displayName) {
@@ -75,7 +80,16 @@ function getDisplayNameOrDefault(passedPersonalDetails?: Partial<PersonalDetails
     if (displayName) {
         return displayName;
     }
-    return defaultValue || (shouldFallbackToHidden ? hiddenTranslation : '');
+
+    if (defaultValue) {
+        return defaultValue;
+    }
+
+    if (login) {
+        return login;
+    }
+
+    return shouldFallbackToHidden ? hiddenTranslation : '';
 }
 
 /**
@@ -150,7 +164,7 @@ function getNewAccountIDsAndLogins(logins: string[], accountIDs: number[]) {
     const newAccountIDs: number[] = [];
     const newLogins: string[] = [];
     logins.forEach((login, index) => {
-        const accountID = accountIDs[index];
+        const accountID = accountIDs.at(index) ?? -1;
         if (isEmptyObject(allPersonalDetails?.[accountID])) {
             newAccountIDs.push(accountID);
             newLogins.push(login);
@@ -169,7 +183,7 @@ function getPersonalDetailsOnyxDataForOptimisticUsers(newLogins: string[], newAc
     const personalDetailsCleanup: PersonalDetailsList = {};
 
     newLogins.forEach((login, index) => {
-        const accountID = newAccountIDs[index];
+        const accountID = newAccountIDs.at(index) ?? -1;
         personalDetailsNew[accountID] = {
             login,
             accountID,
@@ -233,7 +247,7 @@ function getFormattedStreet(street1 = '', street2 = '') {
  */
 function getStreetLines(street = '') {
     const streets = street.split('\n');
-    return [streets[0], streets[1]];
+    return [streets.at(0), streets.at(1)];
 }
 
 /**
@@ -338,6 +352,14 @@ function getPersonalDetailsLength() {
     return personalDetails.length;
 }
 
+function getUserNameByEmail(email: string, nameToDisplay: 'firstName' | 'displayName') {
+    const userDetails = getPersonalDetailByEmail(email);
+    if (userDetails) {
+        return userDetails[nameToDisplay] ? userDetails[nameToDisplay] : userDetails.login;
+    }
+    return email;
+}
+
 export {
     isPersonalDetailsEmpty,
     getDisplayNameOrDefault,
@@ -355,4 +377,5 @@ export {
     extractFirstAndLastNameFromAvailableDetails,
     getNewAccountIDsAndLogins,
     getPersonalDetailsLength,
+    getUserNameByEmail,
 };

@@ -1,5 +1,6 @@
-import React, {useState} from 'react';
+import React, {useCallback, useState} from 'react';
 import {View} from 'react-native';
+import {useOnyx} from 'react-native-onyx';
 import ConfirmModal from '@components/ConfirmModal';
 import * as Expensicons from '@components/Icon/Expensicons';
 import * as Illustrations from '@components/Icon/Illustrations';
@@ -9,19 +10,24 @@ import Text from '@components/Text';
 import useLocalize from '@hooks/useLocalize';
 import useTheme from '@hooks/useTheme';
 import useThemeStyles from '@hooks/useThemeStyles';
+import {hasPolicyWithXeroConnection} from '@libs/PolicyUtils';
 import StepWrapper from '@pages/settings/Security/TwoFactorAuth/StepWrapper/StepWrapper';
 import useTwoFactorAuthContext from '@pages/settings/Security/TwoFactorAuth/TwoFactorAuthContext/useTwoFactorAuth';
-import * as Session from '@userActions/Session';
 import CONST from '@src/CONST';
+import ONYXKEYS from '@src/ONYXKEYS';
 
 function EnabledStep() {
     const theme = useTheme();
     const styles = useThemeStyles();
-    const [isConfirmModalVisible, setIsConfirmModalVisible] = useState(false);
-
+    const [isVisible, setIsVisible] = useState(false);
     const {setStep} = useTwoFactorAuthContext();
+    const [currentUserLogin] = useOnyx(ONYXKEYS.SESSION, {selector: (session) => session?.email});
 
     const {translate} = useLocalize();
+
+    const closeModal = useCallback(() => {
+        setIsVisible(false);
+    }, []);
 
     return (
         <StepWrapper title={translate('twoFactorAuth.headerTitle')}>
@@ -33,7 +39,11 @@ function EnabledStep() {
                         {
                             title: translate('twoFactorAuth.disableTwoFactorAuth'),
                             onPress: () => {
-                                setIsConfirmModalVisible(true);
+                                if (hasPolicyWithXeroConnection(currentUserLogin)) {
+                                    setIsVisible(true);
+                                    return;
+                                }
+                                setStep(CONST.TWO_FACTOR_AUTH_STEPS.GETCODE);
                             },
                             icon: Expensicons.Close,
                             iconFill: theme.danger,
@@ -47,20 +57,14 @@ function EnabledStep() {
                     </View>
                 </Section>
                 <ConfirmModal
-                    title={translate('twoFactorAuth.disableTwoFactorAuth')}
-                    onConfirm={() => {
-                        setIsConfirmModalVisible(false);
-                        setStep(CONST.TWO_FACTOR_AUTH_STEPS.DISABLED);
-                        Session.toggleTwoFactorAuth(false);
-                    }}
-                    onCancel={() => setIsConfirmModalVisible(false)}
-                    onModalHide={() => setIsConfirmModalVisible(false)}
-                    isVisible={isConfirmModalVisible}
-                    prompt={translate('twoFactorAuth.disableTwoFactorAuthConfirmation')}
-                    confirmText={translate('common.disable')}
-                    cancelText={translate('common.cancel')}
-                    shouldShowCancelButton
-                    danger
+                    title={translate('twoFactorAuth.twoFactorAuthCannotDisable')}
+                    prompt={translate('twoFactorAuth.twoFactorAuthRequired')}
+                    confirmText={translate('common.buttonConfirm')}
+                    onConfirm={closeModal}
+                    shouldShowCancelButton={false}
+                    onBackdropPress={closeModal}
+                    onCancel={closeModal}
+                    isVisible={isVisible}
                 />
             </ScrollView>
         </StepWrapper>

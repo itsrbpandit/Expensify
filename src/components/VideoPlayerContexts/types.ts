@@ -4,8 +4,8 @@ import type {SharedValue} from 'react-native-reanimated';
 import type {TupleToUnion} from 'type-fest';
 import type {PopoverMenuItem} from '@components/PopoverMenu';
 import type {VideoWithOnFullScreenUpdate} from '@components/VideoPlayer/types';
-import type WindowDimensions from '@hooks/useWindowDimensions/types';
 import type CONST from '@src/CONST';
+import type {ResponsiveLayoutProperties} from './FullScreenContext';
 
 type PlaybackContext = {
     updateCurrentlyPlayingURL: (url: string | null) => void;
@@ -25,6 +25,8 @@ type PlaybackContext = {
 type VolumeContext = {
     updateVolume: (newVolume: number) => void;
     volume: SharedValue<number>;
+    lastNonZeroVolume: SharedValue<number>;
+    toggleMute: () => void;
 };
 
 type VideoPopoverMenuContext = {
@@ -37,8 +39,8 @@ type VideoPopoverMenuContext = {
 
 type FullScreenContext = {
     isFullScreenRef: MutableRefObject<boolean>;
-    lockedWindowDimensionsRef: MutableRefObject<WindowDimensions | null>;
-    lockWindowDimensions: (newWindowDimensions: WindowDimensions) => void;
+    lockedWindowDimensionsRef: MutableRefObject<ResponsiveLayoutProperties | null>;
+    lockWindowDimensions: (newResponsiveLayoutResult: ResponsiveLayoutProperties) => void;
     unlockWindowDimensions: () => void;
 };
 

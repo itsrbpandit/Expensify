@@ -1,66 +1,280 @@
-import React, {useMemo} from 'react';
+import React, {useMemo, useState} from 'react';
+import {Linking, View} from 'react-native';
+import {useOnyx} from 'react-native-onyx';
+import type {OnyxCollection} from 'react-native-onyx';
+import ConfirmModal from '@components/ConfirmModal';
+import DotIndicatorMessage from '@components/DotIndicatorMessage';
 import EmptyStateComponent from '@components/EmptyStateComponent';
-import * as Illustrations from '@components/Icon/Illustrations';
+import type {FeatureListItem} from '@components/FeatureList';
+import {Alert, PiggyBank} from '@components/Icon/Illustrations';
+import LottieAnimations from '@components/LottieAnimations';
+import MenuItem from '@components/MenuItem';
 import SearchRowSkeleton from '@components/Skeletons/SearchRowSkeleton';
+import Text from '@components/Text';
+import TextLink from '@components/TextLink';
+import useCurrentUserPersonalDetails from '@hooks/useCurrentUserPersonalDetails';
+import useEnvironment from '@hooks/useEnvironment';
 import useLocalize from '@hooks/useLocalize';
 import useStyleUtils from '@hooks/useStyleUtils';
 import useTheme from '@hooks/useTheme';
-import Navigation from '@libs/Navigation/Navigation';
+import useThemeStyles from '@hooks/useThemeStyles';
+import {startMoneyRequest} from '@libs/actions/IOU';
+import {openExternalLink, openOldDotLink} from '@libs/actions/Link';
+import {canActionTask, canModifyTask, completeTask} from '@libs/actions/Task';
+import {bookATrip} from '@libs/actions/Travel';
+import {setSelfTourViewed} from '@libs/actions/Welcome';
+import interceptAnonymousUser from '@libs/interceptAnonymousUser';
+import {hasSeenTourSelector} from '@libs/onboardingSelectors';
+import {areAllGroupPoliciesExpenseChatDisabled} from '@libs/PolicyUtils';
+import {generateReportID} from '@libs/ReportUtils';
+import {getNavatticURL} from '@libs/TourUtils';
 import variables from '@styles/variables';
 import CONST from '@src/CONST';
-import ROUTES from '@src/ROUTES';
+import ONYXKEYS from '@src/ONYXKEYS';
+import type {Policy} from '@src/types/onyx';
 import type {SearchDataTypes} from '@src/types/onyx/SearchResults';
 
 type EmptySearchViewProps = {
     type: SearchDataTypes;
+    hasResults: boolean;
 };
 
-function EmptySearchView({type}: EmptySearchViewProps) {
+const tripsFeatures: FeatureListItem[] = [
+    {
+        icon: PiggyBank,
+        translationKey: 'travel.features.saveMoney',
+    },
+    {
+        icon: Alert,
+        translationKey: 'travel.features.alerts',
+    },
+];
+
+function EmptySearchView({type, hasResults}: EmptySearchViewProps) {
     const theme = useTheme();
     const StyleUtils = useStyleUtils();
     const {translate} = useLocalize();
+    const styles = useThemeStyles();
+    const [modalVisible, setModalVisible] = useState(false);
+    const [allPolicies] = useOnyx(ONYXKEYS.COLLECTION.POLICY);
+    const shouldRedirectToExpensifyClassic = useMemo(() => {
+        return areAllGroupPoliciesExpenseChatDisabled((allPolicies as OnyxCollection<Policy>) ?? {});
+    }, [allPolicies]);
+
+    const [ctaErrorMessage, setCtaErrorMessage] = useState('');
+
+    const subtitleComponent = useMemo(() => {
+        return (
+            <>
+                <Text style={[styles.textSupporting, styles.textNormal]}>
+                    {translate('travel.subtitle')}{' '}
+                    <TextLink
+                        onPress={() => {
+                            Linking.openURL(CONST.BOOK_TRAVEL_DEMO_URL);
+                        }}
+                    >
+                        {translate('travel.bookADemo')}
+                    </TextLink>
+                    {translate('travel.toLearnMore')}
+                </Text>
+                <View style={[styles.flex1, styles.flexRow, styles.flexWrap, styles.rowGap4, styles.pt4, styles.pl1]}>
+                    {tripsFeatures.map((tripsFeature) => (
+                        <View
+                            key={tripsFeature.translationKey}
+                            style={styles.w100}
+                        >
+                            <MenuItem
+                                title={translate(tripsFeature.translationKey)}
+                                icon={tripsFeature.icon}
+                                iconWidth={variables.menuIconSize}
+                                iconHeight={variables.menuIconSize}
+                                interactive={false}
+                                displayInDefaultIconColor
+                                wrapperStyle={[styles.p0, styles.cursorAuto]}
+                                containerStyle={[styles.m0, styles.wAuto]}
+                                numberOfLinesTitle={0}
+                            />
+                        </View>
+                    ))}
+                </View>
+                {!!ctaErrorMessage && (
+                    <DotIndicatorMessage
+                        style={styles.mt1}
+                        messages={{error: ctaErrorMessage}}
+                        type="error"
+                    />
+                )}
+            </>
+        );
+    }, [styles, translate, ctaErrorMessage]);
+
+    const [introSelected] = useOnyx(ONYXKEYS.NVP_INTRO_SELECTED);
+    const onboardingPurpose = introSelected?.choice;
+    const {environment} = useEnvironment();
+    const navatticURL = getNavatticURL(environment, onboardingPurpose);
+    const [hasSeenTour = false] = useOnyx(ONYXKEYS.NVP_ONBOARDING, {
+        selector: hasSeenTourSelector,
+    });
+    const viewTourTaskReportID = introSelected?.viewTour;
+    const [viewTourTaskReport] = useOnyx(`${ONYXKEYS.COLLECTION.REPORT}${viewTourTaskReportID}`);
+    const currentUserPersonalDetails = useCurrentUserPersonalDetails();
+    const canModifyTheTask = canModifyTask(viewTourTaskReport, currentUserPersonalDetails.accountID);
+    const canActionTheTask = canActionTask(viewTourTaskReport, currentUserPersonalDetails.accountID);
 
     const content = useMemo(() => {
         switch (type) {
             case CONST.SEARCH.DATA_TYPES.TRIP:
                 return {
-                    headerMedia: Illustrations.EmptyStateTravel,
-                    headerStyles: StyleUtils.getBackgroundColorStyle(theme.travelBG),
-                    headerContentStyles: StyleUtils.getWidthAndHeightStyle(variables.w191, variables.h172),
-                    title: translate('search.searchResults.emptyTripResults.title'),
-                    subtitle: translate('search.searchResults.emptyTripResults.subtitle'),
-                    buttonText: translate('search.searchResults.emptyTripResults.buttonText'),
-                    buttonAction: () => Navigation.navigate(ROUTES.TRAVEL_MY_TRIPS),
+                    headerMedia: LottieAnimations.TripsEmptyState,
+                    headerContentStyles: [StyleUtils.getWidthAndHeightStyle(375, 240), StyleUtils.getBackgroundColorStyle(theme.travelBG)],
+                    title: translate('travel.title'),
+                    titleStyles: {...styles.textAlignLeft},
+                    subtitle: subtitleComponent,
+                    buttons: [
+                        {
+                            buttonText: translate('search.searchResults.emptyTripResults.buttonText'),
+                            buttonAction: () => bookATrip(translate, setCtaErrorMessage, ctaErrorMessage),
+                            success: true,
+                        },
+                    ],
+                    lottieWebViewStyles: {backgroundColor: theme.travelBG, ...styles.emptyStateFolderWebStyles},
                 };
-            case CONST.SEARCH.DATA_TYPES.TRANSACTION:
-            case CONST.SEARCH.DATA_TYPES.REPORT:
             case CONST.SEARCH.DATA_TYPES.EXPENSE:
+                if (!hasResults) {
+                    return {
+                        headerMedia: LottieAnimations.GenericEmptyState,
+                        title: translate('search.searchResults.emptyExpenseResults.title'),
+                        subtitle: translate('search.searchResults.emptyExpenseResults.subtitle'),
+                        buttons: [
+                            ...(!hasSeenTour
+                                ? [
+                                      {
+                                          buttonText: translate('emptySearchView.takeATour'),
+                                          buttonAction: () => {
+                                              openExternalLink(navatticURL);
+                                              setSelfTourViewed();
+                                              if (viewTourTaskReport && canModifyTheTask && canActionTheTask) {
+                                                  completeTask(viewTourTaskReport);
+                                              }
+                                          },
+                                      },
+                                  ]
+                                : []),
+                            {
+                                buttonText: translate('iou.createExpense'),
+                                buttonAction: () =>
+                                    interceptAnonymousUser(() => {
+                                        if (shouldRedirectToExpensifyClassic) {
+                                            setModalVisible(true);
+                                            return;
+                                        }
+                                        startMoneyRequest(CONST.IOU.TYPE.CREATE, generateReportID());
+                                    }),
+                                success: true,
+                            },
+                        ],
+                        headerContentStyles: [styles.emptyStateFolderWebStyles, StyleUtils.getBackgroundColorStyle(theme.emptyFolderBG)],
+                        lottieWebViewStyles: {backgroundColor: theme.emptyFolderBG, ...styles.emptyStateFolderWebStyles},
+                    };
+                }
+            // We want to display the default nothing to show message if there is any filter applied.
+            // eslint-disable-next-line no-fallthrough
             case CONST.SEARCH.DATA_TYPES.INVOICE:
+                if (!hasResults) {
+                    return {
+                        headerMedia: LottieAnimations.GenericEmptyState,
+                        title: translate('search.searchResults.emptyInvoiceResults.title'),
+                        subtitle: translate('search.searchResults.emptyInvoiceResults.subtitle'),
+                        buttons: [
+                            ...(!hasSeenTour
+                                ? [
+                                      {
+                                          buttonText: translate('emptySearchView.takeATour'),
+                                          buttonAction: () => {
+                                              openExternalLink(navatticURL);
+                                              setSelfTourViewed();
+                                              if (viewTourTaskReport && canModifyTheTask && canActionTheTask) {
+                                                  completeTask(viewTourTaskReport);
+                                              }
+                                          },
+                                      },
+                                  ]
+                                : []),
+                            {
+                                buttonText: translate('workspace.invoices.sendInvoice'),
+                                buttonAction: () =>
+                                    interceptAnonymousUser(() => {
+                                        if (shouldRedirectToExpensifyClassic) {
+                                            setModalVisible(true);
+                                            return;
+                                        }
+                                        startMoneyRequest(CONST.IOU.TYPE.INVOICE, generateReportID());
+                                    }),
+                                success: true,
+                            },
+                        ],
+                        headerContentStyles: [styles.emptyStateFolderWebStyles, StyleUtils.getBackgroundColorStyle(theme.emptyFolderBG)],
+                        lottieWebViewStyles: {backgroundColor: theme.emptyFolderBG, ...styles.emptyStateFolderWebStyles},
+                    };
+                }
+            // eslint-disable-next-line no-fallthrough
+            case CONST.SEARCH.DATA_TYPES.CHAT:
             default:
                 return {
-                    headerMedia: Illustrations.EmptyState,
-                    headerStyles: StyleUtils.getBackgroundColorStyle(theme.emptyFolderBG),
-                    headerContentStyles: StyleUtils.getWidthAndHeightStyle(variables.w184, variables.h112),
+                    headerMedia: LottieAnimations.GenericEmptyState,
                     title: translate('search.searchResults.emptyResults.title'),
                     subtitle: translate('search.searchResults.emptyResults.subtitle'),
-                    buttonText: undefined,
-                    buttonAction: undefined,
+                    headerContentStyles: [styles.emptyStateFolderWebStyles, StyleUtils.getBackgroundColorStyle(theme.emptyFolderBG)],
+                    lottieWebViewStyles: {backgroundColor: theme.emptyFolderBG, ...styles.emptyStateFolderWebStyles},
                 };
         }
-    }, [type, StyleUtils, translate, theme]);
+    }, [
+        type,
+        StyleUtils,
+        theme.travelBG,
+        theme.emptyFolderBG,
+        translate,
+        styles.textAlignLeft,
+        styles.emptyStateFolderWebStyles,
+        subtitleComponent,
+        hasSeenTour,
+        ctaErrorMessage,
+        navatticURL,
+        shouldRedirectToExpensifyClassic,
+        hasResults,
+        viewTourTaskReport,
+        canModifyTheTask,
+        canActionTheTask,
+    ]);
 
     return (
-        <EmptyStateComponent
-            SkeletonComponent={SearchRowSkeleton}
-            headerMediaType={CONST.EMPTY_STATE_MEDIA.ILLUSTRATION}
-            headerMedia={content.headerMedia}
-            headerStyles={content.headerStyles}
-            headerContentStyles={content.headerContentStyles}
-            title={content.title}
-            subtitle={content.subtitle}
-            buttonText={content.buttonText}
-            buttonAction={content.buttonAction}
-        />
+        <>
+            <EmptyStateComponent
+                SkeletonComponent={SearchRowSkeleton}
+                showsVerticalScrollIndicator={false}
+                headerMediaType={CONST.EMPTY_STATE_MEDIA.ANIMATION}
+                headerMedia={content.headerMedia}
+                headerStyles={[styles.emptyStateCardIllustrationContainer, styles.overflowHidden]}
+                title={content.title}
+                titleStyles={content.titleStyles}
+                subtitle={content.subtitle}
+                buttons={content.buttons}
+                headerContentStyles={[styles.h100, styles.w100, ...content.headerContentStyles]}
+                lottieWebViewStyles={content.lottieWebViewStyles}
+            />
+            <ConfirmModal
+                prompt={translate('sidebarScreen.redirectToExpensifyClassicModal.description')}
+                isVisible={modalVisible}
+                onConfirm={() => {
+                    setModalVisible(false);
+                    openOldDotLink(CONST.OLDDOT_URLS.INBOX);
+                }}
+                onCancel={() => setModalVisible(false)}
+                title={translate('sidebarScreen.redirectToExpensifyClassicModal.title')}
+                confirmText={translate('exitSurvey.goToExpensifyClassic')}
+                cancelText={translate('common.cancel')}
+            />
+        </>
     );
 }
 

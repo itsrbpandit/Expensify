@@ -135,8 +135,10 @@ function AboutPage() {
             <HeaderWithBackButton
                 title={translate('initialSettingsPage.about')}
                 shouldShowBackButton={shouldUseNarrowLayout}
+                shouldDisplaySearchRouter
                 onBackButtonPress={() => Navigation.goBack(ROUTES.SETTINGS)}
                 icon={Illustrations.PalmTree}
+                shouldUseHeadlineHeader
             />
             <ScrollView contentContainerStyle={styles.pt3}>
                 <View style={[styles.flex1, shouldUseNarrowLayout ? styles.workspaceSectionMobile : styles.workspaceSection]}>
@@ -165,14 +167,14 @@ function AboutPage() {
                         {translate('initialSettingsPage.readTheTermsAndPrivacy.phrase1')}{' '}
                         <TextLink
                             style={[styles.textMicroSupporting, styles.link]}
-                            href={CONST.TERMS_URL}
+                            href={CONST.OLD_DOT_PUBLIC_URLS.TERMS_URL}
                         >
                             {translate('initialSettingsPage.readTheTermsAndPrivacy.phrase2')}
                         </TextLink>{' '}
                         {translate('initialSettingsPage.readTheTermsAndPrivacy.phrase3')}{' '}
                         <TextLink
                             style={[styles.textMicroSupporting, styles.link]}
-                            href={CONST.PRIVACY_URL}
+                            href={CONST.OLD_DOT_PUBLIC_URLS.PRIVACY_URL}
                         >
                             {translate('initialSettingsPage.readTheTermsAndPrivacy.phrase4')}
                         </TextLink>

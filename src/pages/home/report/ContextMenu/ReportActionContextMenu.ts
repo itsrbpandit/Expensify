@@ -37,6 +37,7 @@ type ShowContextMenu = (
     shouldCloseOnTarget?: boolean,
     setIsEmojiPickerActive?: (state: boolean) => void,
     isOverflowMenu?: boolean,
+    isThreadReportParentAction?: boolean,
 ) => void;
 
 type ReportActionContextMenu = {
@@ -65,7 +66,6 @@ function hideContextMenu(shouldDelay?: boolean, onHideCallback = () => {}) {
     }
     if (!shouldDelay) {
         contextMenuRef.current.hideContextMenu(onHideCallback);
-
         return;
     }
 
@@ -105,9 +105,9 @@ function showContextMenu(
     event: GestureResponderEvent | MouseEvent,
     selection: string,
     contextMenuAnchor: ContextMenuAnchor,
-    reportID = '-1',
-    reportActionID = '-1',
-    originalReportID = '-1',
+    reportID: string | undefined = undefined,
+    reportActionID: string | undefined = undefined,
+    originalReportID: string | undefined = undefined,
     draftMessage: string | undefined = undefined,
     onShow = () => {},
     onHide = () => {},
@@ -119,37 +119,43 @@ function showContextMenu(
     shouldCloseOnTarget = false,
     setIsEmojiPickerActive = () => {},
     isOverflowMenu = false,
+    isThreadReportParentAction = false,
 ) {
     if (!contextMenuRef.current) {
         return;
     }
+    const show = () => {
+        contextMenuRef.current?.showContextMenu(
+            type,
+            event,
+            selection,
+            contextMenuAnchor,
+            reportID,
+            reportActionID,
+            originalReportID,
+            draftMessage,
+            onShow,
+            onHide,
+            isArchivedRoom,
+            isChronosReport,
+            isPinnedChat,
+            isUnreadChat,
+            disabledActions,
+            shouldCloseOnTarget,
+            setIsEmojiPickerActive,
+            isOverflowMenu,
+            isThreadReportParentAction,
+        );
+    };
+
     // If there is an already open context menu, close it first before opening
     // a new one.
     if (contextMenuRef.current.instanceID) {
-        hideContextMenu();
-        contextMenuRef.current.runAndResetOnPopoverHide();
+        hideContextMenu(false, show);
+        return;
     }
 
-    contextMenuRef.current.showContextMenu(
-        type,
-        event,
-        selection,
-        contextMenuAnchor,
-        reportID,
-        reportActionID,
-        originalReportID,
-        draftMessage,
-        onShow,
-        onHide,
-        isArchivedRoom,
-        isChronosReport,
-        isPinnedChat,
-        isUnreadChat,
-        disabledActions,
-        shouldCloseOnTarget,
-        setIsEmojiPickerActive,
-        isOverflowMenu,
-    );
+    show();
 }
 
 /**
@@ -165,8 +171,8 @@ function hideDeleteModal() {
 /**
  * Opens the Confirm delete action modal
  */
-function showDeleteModal(reportID: string, reportAction: OnyxEntry<ReportAction>, shouldSetModalVisibility?: boolean, onConfirm?: OnConfirm, onCancel?: OnCancel) {
-    if (!contextMenuRef.current) {
+function showDeleteModal(reportID: string | undefined, reportAction: OnyxEntry<ReportAction>, shouldSetModalVisibility?: boolean, onConfirm?: OnConfirm, onCancel?: OnCancel) {
+    if (!contextMenuRef.current || !reportID) {
         return;
     }
     contextMenuRef.current.showDeleteModal(reportID, reportAction, shouldSetModalVisibility, onConfirm, onCancel);

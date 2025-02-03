@@ -1,19 +1,19 @@
 import {Str} from 'expensify-common';
 import {useEffect, useRef, useState} from 'react';
-import * as Browser from '@libs/Browser';
+import {isMobile} from '@libs/Browser';
 import Navigation from '@libs/Navigation/Navigation';
 import navigationRef from '@libs/Navigation/navigationRef';
 import shouldPreventDeeplinkPrompt from '@libs/Navigation/shouldPreventDeeplinkPrompt';
-import * as App from '@userActions/App';
-import * as Link from '@userActions/Link';
-import * as Session from '@userActions/Session';
+import {beginDeepLinkRedirect, beginDeepLinkRedirectAfterTransition} from '@userActions/App';
+import {getInternalNewExpensifyPath} from '@userActions/Link';
+import {isAnonymousUser} from '@userActions/Session';
 import CONFIG from '@src/CONFIG';
 import CONST from '@src/CONST';
 import ROUTES from '@src/ROUTES';
 import type DeeplinkWrapperProps from './types';
 
 function isMacOSWeb(): boolean {
-    return !Browser.isMobile() && typeof navigator === 'object' && typeof navigator.userAgent === 'string' && /Mac/i.test(navigator.userAgent) && !/Electron/i.test(navigator.userAgent);
+    return !isMobile() && typeof navigator === 'object' && typeof navigator.userAgent === 'string' && /Mac/i.test(navigator.userAgent) && !/Electron/i.test(navigator.userAgent);
 }
 
 function promptToOpenInDesktopApp(initialUrl = '') {
@@ -22,12 +22,17 @@ function promptToOpenInDesktopApp(initialUrl = '') {
     // 2. There may be non-idempotent operations (e.g. create a new workspace), which obviously should not be executed again in the desktop app.
     // So we need to wait until after sign-in and navigation are complete before starting the deeplink redirect.
     if (Str.startsWith(window.location.pathname, Str.normalizeUrl(ROUTES.TRANSITION_BETWEEN_APPS))) {
-        App.beginDeepLinkRedirectAfterTransition();
+        const params = new URLSearchParams(window.location.search);
+        // If the user is redirected from the desktop app, don't prompt the user to open in desktop.
+        if (params.get('referrer') === 'desktop') {
+            return;
+        }
+        beginDeepLinkRedirectAfterTransition();
     } else {
         // Match any magic link (/v/<account id>/<6 digit code>)
         const isMagicLink = CONST.REGEX.ROUTES.VALIDATE_LOGIN.test(window.location.pathname);
 
-        App.beginDeepLinkRedirect(!isMagicLink, Link.getInternalNewExpensifyPath(initialUrl));
+        beginDeepLinkRedirect(!isMagicLink, getInternalNewExpensifyPath(initialUrl));
     }
 }
 
@@ -62,15 +67,18 @@ function DeeplinkWrapper({children, isAuthenticated, autoAuthState, initialUrl}:
         // According to the design, we don't support unlink in Desktop app https://github.com/Expensify/App/issues/19681#issuecomment-1610353099
         const routeRegex = new RegExp(CONST.REGEX.ROUTES.UNLINK_LOGIN);
         const isUnsupportedDeeplinkRoute = routeRegex.test(window.location.pathname);
+        const route = window.location.pathname.replace('/', '');
+        const isConnectionCompleteRoute = route === ROUTES.CONNECTION_COMPLETE || route === ROUTES.BANK_CONNECTION_COMPLETE;
 
         // Making a few checks to exit early before checking authentication status
         if (
             !isMacOSWeb() ||
             isUnsupportedDeeplinkRoute ||
             hasShownPrompt ||
+            isConnectionCompleteRoute ||
             CONFIG.ENVIRONMENT === CONST.ENVIRONMENT.DEV ||
             autoAuthState === CONST.AUTO_AUTH_STATE.NOT_STARTED ||
-            Session.isAnonymousUser()
+            isAnonymousUser()
         ) {
             return;
         }

@@ -1,3 +1,4 @@
+import {useIsFocused} from '@react-navigation/native';
 import React, {useCallback, useEffect, useRef, useState} from 'react';
 import {StyleSheet, View} from 'react-native';
 import type {ImageStyle, StyleProp, ViewStyle} from 'react-native';
@@ -5,13 +6,12 @@ import useLocalize from '@hooks/useLocalize';
 import useTheme from '@hooks/useTheme';
 import useThemeStyles from '@hooks/useThemeStyles';
 import useWindowDimensions from '@hooks/useWindowDimensions';
-import * as Browser from '@libs/Browser';
+import {isSafari} from '@libs/Browser';
 import type {CustomRNImageManipulatorResult} from '@libs/cropOrRotateImage/types';
-import * as FileUtils from '@libs/fileDownload/FileUtils';
+import {splitExtensionFromFileName, validateImageForCorruption} from '@libs/fileDownload/FileUtils';
 import getImageResolution from '@libs/fileDownload/getImageResolution';
 import type {AvatarSource} from '@libs/UserUtils';
 import variables from '@styles/variables';
-import * as Modal from '@userActions/Modal';
 import CONST from '@src/CONST';
 import type {TranslationPaths} from '@src/languages/types';
 import type * as OnyxCommon from '@src/types/onyx/OnyxCommon';
@@ -28,7 +28,6 @@ import OfflineWithFeedback from './OfflineWithFeedback';
 import PopoverMenu from './PopoverMenu';
 import PressableWithoutFeedback from './Pressable/PressableWithoutFeedback';
 import Tooltip from './Tooltip';
-import withNavigationFocus from './withNavigationFocus';
 
 type ErrorData = {
     validationError?: TranslationPaths | null | '';
@@ -36,7 +35,7 @@ type ErrorData = {
 };
 
 type OpenPickerParams = {
-    onPicked: (image: FileObject) => void;
+    onPicked: (image: FileObject[]) => void;
 };
 type OpenPicker = (args: OpenPickerParams) => void;
 
@@ -44,6 +43,7 @@ type MenuItem = {
     icon: IconAsset;
     text: string;
     onSelected: () => void;
+    shouldCallAfterModalHide?: boolean;
 };
 
 type AvatarWithImagePickerProps = {
@@ -107,9 +107,6 @@ type AvatarWithImagePickerProps = {
     /** File name of the avatar */
     originalFileName?: string;
 
-    /** Whether navigation is focused */
-    isFocused: boolean;
-
     /** Style applied to the avatar */
     avatarStyle: StyleProp<ViewStyle & ImageStyle>;
 
@@ -133,7 +130,6 @@ type AvatarWithImagePickerProps = {
 };
 
 function AvatarWithImagePicker({
-    isFocused,
     DefaultAvatar = () => null,
     style,
     disabledStyle,
@@ -164,6 +160,7 @@ function AvatarWithImagePicker({
 }: AvatarWithImagePickerProps) {
     const theme = useTheme();
     const styles = useThemeStyles();
+    const isFocused = useIsFocused();
     const {windowWidth} = useWindowDimensions();
     const [popoverPosition, setPopoverPosition] = useState({horizontal: 0, vertical: 0});
     const [isMenuVisible, setIsMenuVisible] = useState(false);
@@ -193,11 +190,15 @@ function AvatarWithImagePicker({
         setError(null, {});
     }, [isFocused]);
 
+    useEffect(() => {
+        setError(null, {});
+    }, [source, avatarID]);
+
     /**
      * Check if the attachment extension is allowed.
      */
     const isValidExtension = useCallback((image: FileObject): boolean => {
-        const {fileExtension} = FileUtils.splitExtensionFromFileName(image?.name ?? '');
+        const {fileExtension} = splitExtensionFromFileName(image?.name ?? '');
         return CONST.AVATAR_ALLOWED_EXTENSIONS.some((extension) => extension === fileExtension.toLowerCase());
     }, []);
 
@@ -228,26 +229,31 @@ function AvatarWithImagePicker({
                 return;
             }
 
-            isValidResolution(image).then((isValid) => {
-                if (!isValid) {
-                    setError('avatarWithImagePicker.resolutionConstraints', {
-                        minHeightInPx: CONST.AVATAR_MIN_HEIGHT_PX,
-                        minWidthInPx: CONST.AVATAR_MIN_WIDTH_PX,
-                        maxHeightInPx: CONST.AVATAR_MAX_HEIGHT_PX,
-                        maxWidthInPx: CONST.AVATAR_MAX_WIDTH_PX,
-                    });
-                    return;
-                }
+            validateImageForCorruption(image)
+                .then(() => isValidResolution(image))
+                .then((isValid) => {
+                    if (!isValid) {
+                        setError('avatarWithImagePicker.resolutionConstraints', {
+                            minHeightInPx: CONST.AVATAR_MIN_HEIGHT_PX,
+                            minWidthInPx: CONST.AVATAR_MIN_WIDTH_PX,
+                            maxHeightInPx: CONST.AVATAR_MAX_HEIGHT_PX,
+                            maxWidthInPx: CONST.AVATAR_MAX_WIDTH_PX,
+                        });
+                        return;
+                    }
 
-                setIsAvatarCropModalOpen(true);
-                setError(null, {});
-                setIsMenuVisible(false);
-                setImageData({
-                    uri: image.uri ?? '',
-                    name: image.name ?? '',
-                    type: image.type ?? '',
+                    setIsAvatarCropModalOpen(true);
+                    setError(null, {});
+                    setIsMenuVisible(false);
+                    setImageData({
+                        uri: image.uri ?? '',
+                        name: image.name ?? '',
+                        type: image.type ?? '',
+                    });
+                })
+                .catch(() => {
+                    setError('attachmentPicker.errorWhileSelectingCorruptedAttachment', {});
                 });
-            });
         },
         [isValidExtension, isValidSize],
     );
@@ -260,19 +266,19 @@ function AvatarWithImagePicker({
      * Create menu items list for avatar menu
      */
     const createMenuItems = (openPicker: OpenPicker): MenuItem[] => {
-        const menuItems = [
+        const menuItems: MenuItem[] = [
             {
                 icon: Expensicons.Upload,
                 text: translate('avatarWithImagePicker.uploadPhoto'),
-                onSelected: () =>
-                    Modal.close(() => {
-                        if (Browser.isSafari()) {
-                            return;
-                        }
-                        openPicker({
-                            onPicked: showAvatarCropModal,
-                        });
-                    }),
+                onSelected: () => {
+                    if (isSafari()) {
+                        return;
+                    }
+                    openPicker({
+                        onPicked: (data) => showAvatarCropModal(data.at(0) ?? {}),
+                    });
+                },
+                shouldCallAfterModalHide: true,
             },
         ];
 
@@ -315,7 +321,7 @@ function AvatarWithImagePicker({
             }
             if (isUsingDefaultAvatar) {
                 openPicker({
-                    onPicked: showAvatarCropModal,
+                    onPicked: (data) => showAvatarCropModal(data.at(0) ?? {}),
                 });
                 return;
             }
@@ -325,7 +331,7 @@ function AvatarWithImagePicker({
     );
 
     return (
-        <View style={style}>
+        <View style={[styles.w100, style]}>
             <View style={styles.w100}>
                 <AttachmentModal
                     headerTitle={headerTitle}
@@ -335,7 +341,11 @@ function AvatarWithImagePicker({
                     maybeIcon={isUsingDefaultAvatar}
                 >
                     {({show}) => (
-                        <AttachmentPicker type={CONST.ATTACHMENT_PICKER_TYPE.IMAGE}>
+                        <AttachmentPicker
+                            type={CONST.ATTACHMENT_PICKER_TYPE.IMAGE}
+                            // We need to skip the validation in AttachmentPicker because it is handled in this component itself
+                            shouldValidateImage={false}
+                        >
                             {({openPicker}) => {
                                 const menuItems = createMenuItems(openPicker);
 
@@ -344,14 +354,14 @@ function AvatarWithImagePicker({
                                     menuItems.push({
                                         icon: Expensicons.Eye,
                                         text: translate('avatarWithImagePicker.viewPhoto'),
-                                        onSelected: () =>
-                                            Modal.close(() => {
-                                                if (typeof onViewPhotoPress !== 'function') {
-                                                    show();
-                                                    return;
-                                                }
-                                                onViewPhotoPress();
-                                            }),
+                                        onSelected: () => {
+                                            if (typeof onViewPhotoPress !== 'function') {
+                                                show();
+                                                return;
+                                            }
+                                            onViewPhotoPress();
+                                        },
+                                        shouldCallAfterModalHide: true,
                                     });
                                 }
 
@@ -368,18 +378,18 @@ function AvatarWithImagePicker({
                                             >
                                                 <PressableWithoutFeedback
                                                     onPress={() => onPressAvatar(openPicker)}
-                                                    accessibilityRole={CONST.ACCESSIBILITY_ROLE.IMAGEBUTTON}
+                                                    accessibilityRole={CONST.ROLE.BUTTON}
                                                     accessibilityLabel={translate('avatarWithImagePicker.editImage')}
                                                     disabled={isAvatarCropModalOpen || (disabled && !enablePreview)}
                                                     disabledStyle={disabledStyle}
-                                                    style={[styles.pRelative, avatarStyle, type === CONST.ICON_TYPE_AVATAR && styles.alignSelfCenter]}
+                                                    style={[styles.pRelative, type === CONST.ICON_TYPE_AVATAR && styles.alignSelfCenter, avatarStyle]}
                                                     ref={anchorRef}
                                                 >
                                                     <OfflineWithFeedback pendingAction={pendingAction}>
                                                         {source ? (
                                                             <Avatar
                                                                 containerStyles={avatarStyle}
-                                                                imageStyles={[avatarStyle, styles.alignSelfCenter]}
+                                                                imageStyles={[styles.alignSelfCenter, avatarStyle]}
                                                                 source={source}
                                                                 avatarID={avatarID}
                                                                 fallbackIcon={fallbackIcon}
@@ -411,9 +421,9 @@ function AvatarWithImagePicker({
                                                 // In order for the file picker to open dynamically, the click
                                                 // function must be called from within an event handler that was initiated
                                                 // by the user on Safari.
-                                                if (index === 0 && Browser.isSafari()) {
+                                                if (index === 0 && isSafari()) {
                                                     openPicker({
-                                                        onPicked: showAvatarCropModal,
+                                                        onPicked: (data) => showAvatarCropModal(data.at(0) ?? {}),
                                                     });
                                                 }
                                             }}
@@ -430,7 +440,7 @@ function AvatarWithImagePicker({
                     )}
                 </AttachmentModal>
             </View>
-            {errorData.validationError && (
+            {!!errorData.validationError && (
                 <DotIndicatorMessage
                     style={[styles.mt6]}
                     // eslint-disable-next-line @typescript-eslint/naming-convention
@@ -453,4 +463,4 @@ function AvatarWithImagePicker({
 
 AvatarWithImagePicker.displayName = 'AvatarWithImagePicker';
 
-export default withNavigationFocus(AvatarWithImagePicker);
+export default AvatarWithImagePicker;

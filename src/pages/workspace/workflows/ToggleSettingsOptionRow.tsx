@@ -1,6 +1,9 @@
-import React, {useMemo} from 'react';
+import type {ReactNode} from 'react';
+import React, {useEffect, useMemo} from 'react';
 import {View} from 'react-native';
 import type {StyleProp, TextStyle, ViewStyle} from 'react-native';
+import {useSharedValue} from 'react-native-reanimated';
+import Accordion from '@components/Accordion';
 import Icon from '@components/Icon';
 import OfflineWithFeedback from '@components/OfflineWithFeedback';
 import RenderHTML from '@components/RenderHTML';
@@ -22,7 +25,7 @@ type ToggleSettingOptionRowProps = {
     customTitle?: React.ReactNode;
 
     /** Subtitle of the option */
-    subtitle?: string;
+    subtitle?: string | ReactNode;
 
     /** Accessibility label for the switch */
     switchAccessibilityLabel: string;
@@ -44,6 +47,9 @@ type ToggleSettingOptionRowProps = {
 
     /** Used to apply styles to the Subtitle */
     subtitleStyle?: StyleProp<TextStyle>;
+
+    /** Used to apply styles to the Accordion */
+    accordionStyle?: StyleProp<ViewStyle>;
 
     /** Whether the option is enabled or not */
     isActive: boolean;
@@ -80,6 +86,7 @@ function ToggleSettingOptionRow({
     customTitle,
     subtitle,
     subtitleStyle,
+    accordionStyle,
     switchAccessibilityLabel,
     shouldPlaceSubtitleBelowSwitch,
     shouldEscapeText = undefined,
@@ -97,9 +104,15 @@ function ToggleSettingOptionRow({
     showLockIcon = false,
 }: ToggleSettingOptionRowProps) {
     const styles = useThemeStyles();
+    const isExpanded = useSharedValue(isActive);
+    const isToggleTriggered = useSharedValue(false);
+
+    useEffect(() => {
+        isExpanded.set(isActive);
+    }, [isExpanded, isActive]);
 
     const subtitleHtml = useMemo(() => {
-        if (!subtitle || !shouldParseSubtitle) {
+        if (!subtitle || !shouldParseSubtitle || typeof subtitle !== 'string') {
             return '';
         }
         return Parser.replace(subtitle, {shouldEscapeText});
@@ -116,14 +129,18 @@ function ToggleSettingOptionRow({
     }, [shouldParseSubtitle, subtitleHtml]);
 
     const subTitleView = useMemo(() => {
-        if (!!subtitle && shouldParseSubtitle) {
-            return (
-                <View style={[styles.flexRow, styles.renderHTML, shouldPlaceSubtitleBelowSwitch ? styles.mt1 : {...styles.mt1, ...styles.mr5}]}>
-                    <RenderHTML html={processedSubtitle} />
-                </View>
-            );
+        if (typeof subtitle === 'string') {
+            if (!!subtitle && shouldParseSubtitle) {
+                return (
+                    <View style={[styles.flexRow, styles.renderHTML, shouldPlaceSubtitleBelowSwitch ? styles.mt1 : {...styles.mt1, ...styles.mr5}]}>
+                        <RenderHTML html={processedSubtitle} />
+                    </View>
+                );
+            }
+            return <Text style={[styles.mutedNormalTextLabel, shouldPlaceSubtitleBelowSwitch ? styles.mt1 : {...styles.mt1, ...styles.mr5}, subtitleStyle]}>{subtitle}</Text>;
         }
-        return <Text style={[styles.mutedNormalTextLabel, shouldPlaceSubtitleBelowSwitch ? styles.mt1 : {...styles.mt1, ...styles.mr5}, subtitleStyle]}>{subtitle}</Text>;
+
+        return subtitle;
     }, [
         subtitle,
         shouldParseSubtitle,
@@ -166,14 +183,23 @@ function ToggleSettingOptionRow({
                     <Switch
                         disabledAction={disabledAction}
                         accessibilityLabel={switchAccessibilityLabel}
-                        onToggle={onToggle}
+                        onToggle={(isOn) => {
+                            isToggleTriggered.set(true);
+                            onToggle(isOn);
+                        }}
                         isOn={isActive}
                         disabled={disabled}
                         showLockIcon={showLockIcon}
                     />
                 </View>
                 {shouldPlaceSubtitleBelowSwitch && subtitle && subTitleView}
-                {isActive && subMenuItems}
+                <Accordion
+                    isExpanded={isExpanded}
+                    style={accordionStyle}
+                    isToggleTriggered={isToggleTriggered}
+                >
+                    {subMenuItems}
+                </Accordion>
             </View>
         </OfflineWithFeedback>
     );

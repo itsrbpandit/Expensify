@@ -85,10 +85,11 @@ function SuggestionMention(
     {value, selection, setSelection, updateComment, isAutoSuggestionPickerLarge, measureParentContainerAndReportCursor, isComposerFocused, isGroupPolicyReport, policyID}: SuggestionProps,
     ref: ForwardedRef<SuggestionsRef>,
 ) {
-    const personalDetails = usePersonalDetails() ?? CONST.EMPTY_OBJECT;
+    const personalDetails = usePersonalDetails();
     const {translate, formatPhoneNumber} = useLocalize();
     const [suggestionValues, setSuggestionValues] = useState(defaultSuggestionsValues);
     const suggestionValuesRef = useRef(suggestionValues);
+    // eslint-disable-next-line react-compiler/react-compiler
     suggestionValuesRef.current = suggestionValues;
 
     const [reports] = useOnyx(ONYXKEYS.COLLECTION.REPORT);
@@ -111,7 +112,7 @@ function SuggestionMention(
         },
         [currentReport],
     );
-    const weightedPersonalDetails: PersonalDetailsList | SuggestionPersonalDetailsList = useMemo(() => {
+    const weightedPersonalDetails: PersonalDetailsList | SuggestionPersonalDetailsList | undefined = useMemo(() => {
         const policyEmployeeAccountIDs = getPolicyEmployeeAccountIDs(policyID);
         if (!ReportUtils.isGroupChat(currentReport) && !ReportUtils.doesReportBelongToWorkspace(currentReport, policyEmployeeAccountIDs, policyID)) {
             return personalDetails;
@@ -137,8 +138,10 @@ function SuggestionMention(
 
     // Used to detect if the selection has changed since the last suggestion insertion
     // If so, we reset the suggestionInsertionIndexRef
+    // eslint-disable-next-line react-compiler/react-compiler
     const hasSelectionChanged = !(selection.end === selection.start && selection.start === suggestionInsertionIndexRef.current);
     if (hasSelectionChanged) {
+        // eslint-disable-next-line react-compiler/react-compiler
         suggestionInsertionIndexRef.current = null;
     }
 
@@ -154,9 +157,9 @@ function SuggestionMention(
         useCallback(() => {
             const foundSuggestionsCount = suggestionValues.suggestedMentions.length;
             if (suggestionValues.prefixType === '#' && foundSuggestionsCount < 5 && isGroupPolicyReport) {
-                ReportUserActions.searchInServer(value, policyID);
+                ReportUserActions.searchInServer(suggestionValues.mentionPrefix, policyID);
             }
-        }, [suggestionValues.suggestedMentions.length, suggestionValues.prefixType, policyID, value, isGroupPolicyReport]),
+        }, [suggestionValues.suggestedMentions.length, suggestionValues.prefixType, suggestionValues.mentionPrefix, policyID, isGroupPolicyReport]),
         CONST.TIMING.SEARCH_OPTION_LIST_DEBOUNCE_TIME,
     );
 
@@ -171,7 +174,7 @@ function SuggestionMention(
             }
 
             // Otherwise, the emails must be of the same private domain, so we should remove the domain part
-            return displayText.split('@')[0];
+            return displayText.split('@').at(0);
         },
         [currentUserPersonalDetails.login],
     );
@@ -193,7 +196,10 @@ function SuggestionMention(
     const insertSelectedMention = useCallback(
         (highlightedMentionIndexInner: number) => {
             const commentBeforeAtSign = value.slice(0, suggestionValues.atSignIndex);
-            const mentionObject = suggestionValues.suggestedMentions[highlightedMentionIndexInner];
+            const mentionObject = suggestionValues.suggestedMentions.at(highlightedMentionIndexInner);
+            if (!mentionObject || highlightedMentionIndexInner === -1) {
+                return;
+            }
             const mentionCode = getMentionCode(mentionObject, suggestionValues.prefixType);
             const commentAfterMention = value.slice(suggestionValues.atSignIndex + suggestionValues.mentionPrefix.length + 1);
 
@@ -258,7 +264,7 @@ function SuggestionMention(
     );
 
     const getUserMentionOptions = useCallback(
-        (personalDetailsParam: PersonalDetailsList | SuggestionPersonalDetailsList, searchValue = ''): Mention[] => {
+        (personalDetailsParam: PersonalDetailsList | SuggestionPersonalDetailsList | undefined, searchValue = ''): Mention[] => {
             const suggestions = [];
 
             if (CONST.AUTO_COMPLETE_SUGGESTER.HERE_TEXT.includes(searchValue.toLowerCase())) {
@@ -274,7 +280,7 @@ function SuggestionMention(
                 });
             }
 
-            const filteredPersonalDetails = Object.values(personalDetailsParam ?? {}).filter((detail) => {
+            const filteredPersonalDetails = Object.values(personalDetailsParam ?? {}).filter((detail, index, array) => {
                 // If we don't have user's primary login, that member is not known to the current user and hence we do not allow them to be mentioned
                 if (!detail?.login || detail.isOptimisticPersonalDetail) {
                     return false;
@@ -296,7 +302,9 @@ function SuggestionMention(
                     return false;
                 }
 
-                return true;
+                // on staging server, in specific cases (see issue) BE returns duplicated personalDetails
+                // entries with the same `login` which we need to filter out
+                return array.findIndex((arrayDetail) => arrayDetail?.login === detail?.login) === index;
             }) as Array<PersonalDetails & {weight: number}>;
 
             // At this point we are sure that the details are not null, since empty user details have been filtered in the previous step
@@ -328,7 +336,7 @@ function SuggestionMention(
         (searchTerm: string, reportBatch: OnyxCollection<Report>): Mention[] => {
             const filteredRoomMentions: Mention[] = [];
             Object.values(reportBatch ?? {}).forEach((report) => {
-                if (!ReportUtils.canReportBeMentionedWithinPolicy(report, policyID ?? '-1')) {
+                if (!ReportUtils.canReportBeMentionedWithinPolicy(report, policyID)) {
                     return;
                 }
                 if (report?.reportName?.toLowerCase().includes(searchTerm.toLowerCase())) {
@@ -357,7 +365,7 @@ function SuggestionMention(
             const leftString = newValue.substring(afterLastBreakLineIndex, selectionEnd);
             const words = leftString.split(CONST.REGEX.SPACE_OR_EMOJI);
             const lastWord: string = words.at(-1) ?? '';
-            const secondToLastWord = words[words.length - 3];
+            const secondToLastWord = words.at(-3);
 
             let atSignIndex: number | undefined;
             let suggestionWord = '';
