@@ -109,23 +109,25 @@ function WorkspaceConfirmationOwnerSelectorPage() {
             });
         }
 
-        if ((availableOptions.recentReports?.length ?? 0) > 0) {
+        const filteredRecentReports = availableOptions.recentReports?.filter((report) => report.login !== currentOwner) ?? [];
+        if (filteredRecentReports.length > 0) {
             sectionsList.push({
                 title: translate('common.recents'),
-                data: availableOptions.recentReports ?? [],
+                data: filteredRecentReports,
                 shouldShow: true,
             });
         }
 
-        if ((availableOptions.personalDetails?.length ?? 0) > 0) {
+        const filteredPersonalDetails = availableOptions.personalDetails?.filter((contact) => contact.login !== currentOwner) ?? [];
+        if (filteredPersonalDetails.length > 0) {
             sectionsList.push({
                 title: translate('common.contacts'),
-                data: availableOptions.personalDetails ?? [],
+                data: filteredPersonalDetails,
                 shouldShow: true,
             });
         }
 
-        if (availableOptions.userToInvite) {
+        if (availableOptions.userToInvite && availableOptions.userToInvite.login !== currentOwner) {
             sectionsList.push({
                 title: undefined,
                 data: [availableOptions.userToInvite],
