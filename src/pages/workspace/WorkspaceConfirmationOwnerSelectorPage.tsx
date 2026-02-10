@@ -26,17 +26,7 @@ import type {Participant} from '@src/types/onyx/IOU';
 /**
  * Helper function to create a formatted user list item
  */
-function createUserListItem({
-    personalDetails,
-    login,
-    keyPrefix,
-    isSelected = false,
-}: {
-    personalDetails: ReturnType<typeof getPersonalDetailByEmail>;
-    login: string;
-    keyPrefix: string;
-    isSelected?: boolean;
-}) {
+function createUserListItem(personalDetails: ReturnType<typeof getPersonalDetailByEmail>, login: string, keyPrefix: string, isSelected = false) {
     const accountID = personalDetails?.accountID ?? generateAccountID(login);
     return {
         ...(personalDetails ?? {}),
@@ -101,14 +91,8 @@ function WorkspaceConfirmationOwnerSelectorPage() {
         const sectionsList = [];
         const currentUserPersonalDetails = getPersonalDetailByEmail(currentUserLogin ?? '');
 
-        // Add selected owner section
         if (currentOwner) {
-            const ownerItem = createUserListItem({
-                personalDetails: ownerPersonalDetails,
-                login: currentOwner,
-                keyPrefix: 'currentOwner',
-                isSelected: true,
-            });
+            const ownerItem = createUserListItem(ownerPersonalDetails, currentOwner, 'currentOwner', true);
             sectionsList.push({
                 title: undefined,
                 data: [ownerItem],
@@ -116,14 +100,8 @@ function WorkspaceConfirmationOwnerSelectorPage() {
             });
         }
 
-        // Add current user as an option if they're not the selected owner
         if (currentUserLogin && currentUserLogin !== currentOwner) {
-            const currentUserItem = createUserListItem({
-                personalDetails: currentUserPersonalDetails,
-                login: currentUserLogin,
-                keyPrefix: 'currentUser',
-                isSelected: false,
-            });
+            const currentUserItem = createUserListItem(currentUserPersonalDetails, currentUserLogin, 'currentUser', false);
             sectionsList.push({
                 title: undefined,
                 data: [currentUserItem],
@@ -131,21 +109,22 @@ function WorkspaceConfirmationOwnerSelectorPage() {
             });
         }
 
-        // Add recent reports section
-        sectionsList.push({
-            title: translate('common.recents'),
-            data: availableOptions.recentReports ?? [],
-            shouldShow: (availableOptions.recentReports?.length ?? 0) > 0,
-        });
+        if ((availableOptions.recentReports?.length ?? 0) > 0) {
+            sectionsList.push({
+                title: translate('common.recents'),
+                data: availableOptions.recentReports ?? [],
+                shouldShow: true,
+            });
+        }
 
-        // Add contacts section
-        sectionsList.push({
-            title: translate('common.contacts'),
-            data: availableOptions.personalDetails ?? [],
-            shouldShow: (availableOptions.personalDetails?.length ?? 0) > 0,
-        });
+        if ((availableOptions.personalDetails?.length ?? 0) > 0) {
+            sectionsList.push({
+                title: translate('common.contacts'),
+                data: availableOptions.personalDetails ?? [],
+                shouldShow: true,
+            });
+        }
 
-        // Add user to invite section
         if (availableOptions.userToInvite) {
             sectionsList.push({
                 title: undefined,

@@ -270,7 +270,7 @@ function WorkspaceConfirmationForm({onSubmit, policyOwnerEmail = '', onBackButto
                                         interactive
                                         shouldShowRightIcon
                                         onPress={() => {
-                                            Navigation.navigate(ROUTES.WORKSPACE_CONFIRMATION_OWNER_SELECTOR.getRoute(Navigation.getActiveRoute()));
+                                            Navigation.navigate(ROUTES.WORKSPACE_CONFIRMATION_OWNER_SELECTOR);
                                         }}
                                         value={userOwner}
                                     />
