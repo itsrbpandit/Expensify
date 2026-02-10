@@ -105,9 +105,9 @@ To reimburse members:
 2. Click **Add deposit-only bank account**.
 3. Enter personal bank details.
 
-## If routing numbers for Canadian bank accounts are 8 digits, why does Expensify require 9 digits?
+## Why does Expensify require 9 digits when Canadian routing numbers are 8 digits?
 
-* The 9-digit requirement is for electronic fund transfers.
+* The 9-digit requirement for Canadian routing numbers is for electronic fund transfers.
 * Simply add a zero to the beginning of the routing number to make it 9 digits.
 
 </div>
