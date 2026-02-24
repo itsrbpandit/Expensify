@@ -7531,7 +7531,6 @@ Vereis onkostendetails zoals bonnen en beschrijvingen, stel limieten en standaar
         },
     },
     gps: {
-        disclaimer: 'Gebruik GPS om een uitgave van je reis te maken. Tik hieronder op Start om de registratie te beginnen.',
         error: {
             failedToStart: 'Locatietracking starten is mislukt.',
             failedToGetPermissions: 'Locatievereisten ophalen mislukt.',
