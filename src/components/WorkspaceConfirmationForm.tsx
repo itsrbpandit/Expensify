@@ -71,7 +71,7 @@ function WorkspaceConfirmationForm({onSubmit, policyOwnerEmail = '', onBackButto
     const {translate} = useLocalize();
     const {inputCallbackRef} = useAutoFocusInput();
     const scrollViewRef = useRef<RNScrollView>(null);
-    const [account] = useOnyx(ONYXKEYS.ACCOUNT, {canBeMissing: true});
+    const [account] = useOnyx(ONYXKEYS.ACCOUNT);
     const isApprovedAccountant = !!account?.isApprovedAccountant;
 
     const validate = useCallback(
