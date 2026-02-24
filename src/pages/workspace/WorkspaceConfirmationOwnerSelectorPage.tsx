@@ -7,6 +7,7 @@ import ScreenWrapper from '@components/ScreenWrapper';
 import SelectionList from '@components/SelectionListWithSections';
 import UserListItem from '@components/SelectionListWithSections/UserListItem';
 import useCurrentUserPersonalDetails from '@hooks/useCurrentUserPersonalDetails';
+import useDynamicBackPath from '@hooks/useDynamicBackPath';
 import useLocalize from '@hooks/useLocalize';
 import useOnyx from '@hooks/useOnyx';
 import useSearchSelector from '@hooks/useSearchSelector';
@@ -20,6 +21,7 @@ import {getPersonalDetailByEmail} from '@libs/PersonalDetailsUtils';
 import {generateAccountID} from '@libs/UserUtils';
 import CONST from '@src/CONST';
 import ONYXKEYS from '@src/ONYXKEYS';
+import {DYNAMIC_ROUTES} from '@src/ROUTES';
 import INPUT_IDS from '@src/types/form/WorkspaceConfirmationForm';
 import type {Participant} from '@src/types/onyx/IOU';
 
@@ -58,6 +60,7 @@ function WorkspaceConfirmationOwnerSelectorPage() {
     const [draftValues] = useOnyx(ONYXKEYS.FORMS.WORKSPACE_CONFIRMATION_FORM_DRAFT);
     const currentOwner = draftValues?.owner ?? currentUserLogin ?? '';
     const ownerPersonalDetails = getPersonalDetailByEmail(currentOwner);
+    const backPath = useDynamicBackPath(DYNAMIC_ROUTES.OWNER_SELECTOR.path);
 
     const excludeLogins = useMemo(
         () => ({
@@ -151,9 +154,9 @@ function WorkspaceConfirmationOwnerSelectorPage() {
             });
 
             // Navigate back to the confirmation form
-            Navigation.goBack();
+            Navigation.goBack(backPath);
         },
-        [setSearchTerm],
+        [setSearchTerm, backPath],
     );
 
     useEffect(() => {
@@ -167,7 +170,7 @@ function WorkspaceConfirmationOwnerSelectorPage() {
         >
             <HeaderWithBackButton
                 title={translate('workspace.common.workspaceOwner')}
-                onBackButtonPress={() => Navigation.goBack()}
+                onBackButtonPress={() => Navigation.goBack(backPath)}
             />
             <View style={[styles.flex1, styles.w100, styles.pRelative]}>
                 <SelectionList
