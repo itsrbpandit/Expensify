@@ -2250,6 +2250,11 @@ function createDraftInitialWorkspace(
     const shouldEnableWorkflowsByDefault =
         !introSelected?.choice || introSelected.choice === CONST.ONBOARDING_CHOICES.MANAGE_TEAM || introSelected.choice === CONST.ONBOARDING_CHOICES.LOOKING_AROUND;
 
+    // Determine current user's role based on policy ownership and makeMeAdmin choice
+    const isCurrentUserPolicyOwner = !policyOwnerEmail || policyOwnerEmail === deprecatedSessionEmail;
+    const currentUserRole = isCurrentUserPolicyOwner || makeMeAdmin ? CONST.POLICY.ROLE.ADMIN : CONST.POLICY.ROLE.USER;
+    const currentUserSubmitsTo = isCurrentUserPolicyOwner ? deprecatedSessionEmail : policyOwnerEmail;
+
     const optimisticData: Array<OnyxUpdate<typeof ONYXKEYS.COLLECTION.POLICY_DRAFTS>> = [
         {
             onyxMethod: Onyx.METHOD.SET,
@@ -2258,7 +2263,7 @@ function createDraftInitialWorkspace(
                 id: policyID,
                 type: type || CONST.POLICY.TYPE.TEAM,
                 name: workspaceName,
-                role: CONST.POLICY.ROLE.ADMIN,
+                role: currentUserRole,
                 owner: deprecatedSessionEmail,
                 ownerAccountID: deprecatedSessionAccountID,
                 isPolicyExpenseChatEnabled: true,
@@ -2279,9 +2284,9 @@ function createDraftInitialWorkspace(
                 originalFileName: file?.name,
                 employeeList: {
                     [deprecatedSessionEmail]: {
-                        submitsTo: deprecatedSessionEmail,
+                        submitsTo: currentUserSubmitsTo,
                         email: deprecatedSessionEmail,
-                        role: CONST.POLICY.ROLE.ADMIN,
+                        role: currentUserRole,
                         errors: {},
                     },
                 },
@@ -2395,6 +2400,10 @@ function buildPolicyData(options: BuildPolicyDataOptions): OnyxData<BuildPolicyD
 
     const areDistanceRatesEnabled = !!featuresMap?.find((feature) => feature.id === CONST.POLICY.MORE_FEATURES.ARE_DISTANCE_RATES_ENABLED && feature.enabled);
 
+    // Determine current user's role based on policy ownership and makeMeAdmin choice
+    const isCurrentUserPolicyOwner = !policyOwnerEmail || policyOwnerEmail === currentUserEmailParam;
+    const currentUserRole = isCurrentUserPolicyOwner || makeMeAdmin ? CONST.POLICY.ROLE.ADMIN : CONST.POLICY.ROLE.USER;
+
     // WARNING: The data below should be kept in sync with the API so we create the policy with the correct configuration.
     const optimisticData: Array<
         OnyxUpdate<
@@ -2419,7 +2428,7 @@ function buildPolicyData(options: BuildPolicyDataOptions): OnyxData<BuildPolicyD
                 id: policyID,
                 type: workspaceType,
                 name: workspaceName,
-                role: CONST.POLICY.ROLE.ADMIN,
+                role: currentUserRole,
                 owner: policyOwnerEmail || currentUserEmailParam,
                 ownerAccountID: policyOwnerEmail ? (PersonalDetailsUtils.getPersonalDetailByEmail(policyOwnerEmail)?.accountID ?? currentUserAccountIDParam) : currentUserAccountIDParam,
                 isPolicyExpenseChatEnabled: true,
@@ -2912,6 +2921,11 @@ function createDraftWorkspace(
     const shouldEnableWorkflowsByDefault =
         !introSelected?.choice || introSelected.choice === CONST.ONBOARDING_CHOICES.MANAGE_TEAM || introSelected.choice === CONST.ONBOARDING_CHOICES.LOOKING_AROUND;
 
+    // Determine current user's role based on policy ownership and makeMeAdmin choice
+    const isCurrentUserPolicyOwner = !policyOwnerEmail || policyOwnerEmail === deprecatedSessionEmail;
+    const currentUserRole = isCurrentUserPolicyOwner || makeMeAdmin ? CONST.POLICY.ROLE.ADMIN : CONST.POLICY.ROLE.USER;
+    const currentUserSubmitsTo = isCurrentUserPolicyOwner ? deprecatedSessionEmail : policyOwnerEmail;
+
     const optimisticData: Array<OnyxUpdate<typeof ONYXKEYS.COLLECTION.POLICY_DRAFTS | typeof ONYXKEYS.COLLECTION.REPORT_DRAFT | typeof ONYXKEYS.COLLECTION.POLICY_CATEGORIES_DRAFT>> = [
         {
             onyxMethod: Onyx.METHOD.SET,
@@ -2920,7 +2934,7 @@ function createDraftWorkspace(
                 id: policyID,
                 type: CONST.POLICY.TYPE.TEAM,
                 name: workspaceName,
-                role: CONST.POLICY.ROLE.ADMIN,
+                role: currentUserRole,
                 owner: deprecatedSessionEmail,
                 ownerAccountID: deprecatedSessionAccountID,
                 isPolicyExpenseChatEnabled: true,
@@ -2944,9 +2958,9 @@ function createDraftWorkspace(
                 areExpensifyCardsEnabled: false,
                 employeeList: {
                     [deprecatedSessionEmail]: {
-                        submitsTo: deprecatedSessionEmail,
+                        submitsTo: currentUserSubmitsTo,
                         email: deprecatedSessionEmail,
-                        role: CONST.POLICY.ROLE.ADMIN,
+                        role: currentUserRole,
                         errors: {},
                     },
                 },

@@ -149,6 +149,12 @@ function WorkspaceConfirmationOwnerSelectorPage() {
             // Update the draft form with the selected owner
             const login = option?.login ?? '';
 
+            // Prevent writing empty owner values from non-user selector options
+            // (e.g., chats/reports without a user login)
+            if (!login) {
+                return;
+            }
+
             setDraftValues(ONYXKEYS.FORMS.WORKSPACE_CONFIRMATION_FORM, {
                 [INPUT_IDS.OWNER]: login,
             });
