@@ -146,11 +146,8 @@ function WorkspaceConfirmationOwnerSelectorPage() {
             // Clear search to prevent "No results found" after selection
             setSearchTerm('');
 
-            // Update the draft form with the selected owner
-            const login = option?.login ?? '';
-
             setDraftValues(ONYXKEYS.FORMS.WORKSPACE_CONFIRMATION_FORM, {
-                [INPUT_IDS.OWNER]: login,
+                [INPUT_IDS.OWNER]: option?.login,
             });
 
             // Navigate back to the confirmation form
