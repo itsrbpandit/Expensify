@@ -3,6 +3,7 @@ import type {LayoutChangeEvent} from 'react-native';
 import {View} from 'react-native';
 import {Gesture, GestureDetector, GestureHandlerRootView} from 'react-native-gesture-handler';
 import type {GestureUpdateEvent, PanGestureChangeEventPayload, PanGestureHandlerEventPayload} from 'react-native-gesture-handler';
+import ImageSize from 'react-native-image-size';
 import Animated, {useAnimatedStyle, useSharedValue} from 'react-native-reanimated';
 import Image from '@components/Image';
 import RESIZE_MODES from '@components/Image/resizeModes';
@@ -70,6 +71,23 @@ function ReceiptCropView({imageUri, onCropChange, initialCrop, isAuthTokenRequir
     } | null>(null);
 
     const isCropInitialized = imageSize.width > 0 && imageSize.height > 0 && containerSize.width > 0 && containerSize.height > 0;
+
+    // Use react-native-image-size to get actual original image dimensions (not downsampled display dimensions).
+    // On Android, expo-image's onLoad reports Glide-downsampled dimensions, which would make crop coordinates
+    // wrong for expo-image-manipulator (which operates on full-resolution images). See AvatarCropModal for the same pattern.
+    useEffect(() => {
+        if (!imageUri) {
+            return;
+        }
+        ImageSize.getSize(imageUri).then(({width, height, rotation: originalRotation}) => {
+            // On Android, ImageSize returns rotation; when image is rotated 90/270°, swap width/height for layout.
+            if (originalRotation === 90 || originalRotation === 270) {
+                setImageSize({width: height, height: width});
+            } else {
+                setImageSize({width, height});
+            }
+        });
+    }, [imageUri]);
 
     // Calculate scale factors to convert display coordinates to image coordinates
     const {scaleX, scaleY, displayWidth, displayHeight, imageOffsetX, imageOffsetY} = useMemo(() => {
@@ -235,19 +253,12 @@ function ReceiptCropView({imageUri, onCropChange, initialCrop, isAuthTokenRequir
         [containerWidthSV, containerHeightSV],
     );
 
-    const onImageLoad = useCallback(
-        (event: {nativeEvent: {width: number; height: number}}) => {
-            const {width, height} = event.nativeEvent;
-            if (!width || !height || (imageSize.width === width && imageSize.height === height)) {
-                return;
-            }
-            if (!hasImageDimensions) {
-                setHasImageDimensions(true);
-            }
-            setImageSize({width, height});
-        },
-        [hasImageDimensions, imageSize.width, imageSize.height],
-    );
+    const onImageLoad = useCallback(() => {
+        if (hasImageDimensions) {
+            return;
+        }
+        setHasImageDimensions(true);
+    }, [hasImageDimensions]);
 
     /**
      * Clamp a value between min and max
