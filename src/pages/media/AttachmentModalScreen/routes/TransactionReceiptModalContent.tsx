@@ -29,7 +29,8 @@ import AttachmentModalContainer from '@pages/media/AttachmentModalScreen/Attachm
 import type {AttachmentModalScreenProps} from '@pages/media/AttachmentModalScreen/types';
 import CONST from '@src/CONST';
 import ONYXKEYS from '@src/ONYXKEYS';
-import ROUTES, {type Route} from '@src/ROUTES';
+import ROUTES from '@src/ROUTES';
+import type {Route} from '@src/ROUTES';
 import type SCREENS from '@src/SCREENS';
 import type {ReceiptSource} from '@src/types/onyx/Transaction';
 import type {FileObject} from '@src/types/utils/Attachment';
