@@ -59,6 +59,7 @@ function ReceiptCropView({imageUri, onCropChange, initialCrop, isAuthTokenRequir
     const cropY = useSharedValue(0);
     const cropWidth = useSharedValue(0);
     const cropHeight = useSharedValue(0);
+    const isImageInitialized = useRef(false);
 
     // Track previous values to detect changes and recalculate crop on resize
     const prevDisplayValuesRef = useRef<{
@@ -86,6 +87,8 @@ function ReceiptCropView({imageUri, onCropChange, initialCrop, isAuthTokenRequir
             } else {
                 setImageSize({width, height});
             }
+
+            isImageInitialized.current = true;
         });
     }, [imageUri, isAuthTokenRequired]);
 
@@ -262,7 +265,7 @@ function ReceiptCropView({imageUri, onCropChange, initialCrop, isAuthTokenRequir
             if (!hasImageDimensions) {
                 setHasImageDimensions(true);
             }
-            if (!imageSize.width && !imageSize.height) {
+            if (!isImageInitialized.current) {
                 setImageSize({width, height});
             }
         },
