@@ -11,13 +11,13 @@ import useLocalize from '@hooks/useLocalize';
 import useNetwork from '@hooks/useNetwork';
 import useOnyx from '@hooks/useOnyx';
 import usePolicy from '@hooks/usePolicy';
-import useResponsiveLayout from '@hooks/useResponsiveLayout';
 import useThemeStyles from '@hooks/useThemeStyles';
 import {detachReceipt, navigateToStartStepIfScanFileCannotBeRead, removeMoneyRequestOdometerImage, replaceReceipt, setMoneyRequestReceipt} from '@libs/actions/IOU';
 import {openReport} from '@libs/actions/Report';
 import cropOrRotateImage from '@libs/cropOrRotateImage';
 import fetchImage from '@libs/fetchImage';
 import getNonEmptyStringOnyxID from '@libs/getNonEmptyStringOnyxID';
+import getPlatform from '@libs/getPlatform';
 import Navigation from '@libs/Navigation/Navigation';
 import {getThumbnailAndImageURIs} from '@libs/ReceiptUtils';
 import {getReportAction, isTrackExpenseAction} from '@libs/ReportActionsUtils';
@@ -30,7 +30,6 @@ import type {AttachmentModalScreenProps} from '@pages/media/AttachmentModalScree
 import CONST from '@src/CONST';
 import ONYXKEYS from '@src/ONYXKEYS';
 import ROUTES from '@src/ROUTES';
-import type {Route} from '@src/ROUTES';
 import type SCREENS from '@src/SCREENS';
 import type {ReceiptSource} from '@src/types/onyx/Transaction';
 import type {FileObject} from '@src/types/utils/Attachment';
@@ -52,7 +51,8 @@ function TransactionReceiptModalContent({navigation, route}: AttachmentModalScre
     const [session] = useOnyx(ONYXKEYS.SESSION);
     const [introSelected] = useOnyx(ONYXKEYS.NVP_INTRO_SELECTED);
     const policy = usePolicy(report?.policyID);
-    const {shouldUseNarrowLayout} = useResponsiveLayout();
+    const platform = getPlatform();
+    const isNative = platform === CONST.PLATFORM.ANDROID || platform === CONST.PLATFORM.IOS;
 
     // If we have a merge transaction, we need to use the receipt from the merge transaction
     const [mergeTransaction] = useOnyx(`${ONYXKEYS.COLLECTION.MERGE_TRANSACTION}${getNonEmptyStringOnyxID(mergeTransactionID)}`);
@@ -506,23 +506,27 @@ function TransactionReceiptModalContent({navigation, route}: AttachmentModalScre
                     <Button
                         icon={expensifyIcons.Camera}
                         onPress={() => {
-                            const destinationRoute: Route = isOdometerImage
-                                ? ROUTES.ODOMETER_IMAGE.getRoute(action ?? CONST.IOU.ACTION.CREATE, iouType, transactionID, reportID, imageType)
-                                : ROUTES.MONEY_REQUEST_STEP_SCAN.getRoute(
-                                      action ?? CONST.IOU.ACTION.EDIT,
-                                      iouType,
-                                      draftTransactionID ?? transaction?.transactionID,
-                                      report?.reportID,
-                                      Navigation.getActiveRoute(),
-                                  );
-
-                            if (shouldUseNarrowLayout) {
-                                Navigation.navigate(destinationRoute, {forceReplace: true});
+                            const getDestinationRoute = () => {
+                                return isOdometerImage
+                                    ? ROUTES.ODOMETER_IMAGE.getRoute(action ?? CONST.IOU.ACTION.CREATE, iouType, transactionID, reportID, imageType)
+                                    : ROUTES.MONEY_REQUEST_STEP_SCAN.getRoute(
+                                          action ?? CONST.IOU.ACTION.EDIT,
+                                          iouType,
+                                          draftTransactionID ?? transaction?.transactionID,
+                                          report?.reportID,
+                                          Navigation.getActiveRoute(),
+                                      );
+                            };
+                            if (isNative) {
+                                Navigation.goBack();
+                                Navigation.setNavigationActionToMicrotaskQueue(() => {
+                                    Navigation.navigate(getDestinationRoute());
+                                });
                                 return;
                             }
 
                             Navigation.dismissModal({
-                                callback: () => Navigation.navigate(destinationRoute),
+                                callback: () => Navigation.navigate(getDestinationRoute()),
                             });
                         }}
                         text={translate('common.replace')}
@@ -563,7 +567,7 @@ function TransactionReceiptModalContent({navigation, route}: AttachmentModalScre
         draftTransactionID,
         transaction?.transactionID,
         report?.reportID,
-        shouldUseNarrowLayout,
+        isNative,
     ]);
 
     const customAttachmentContent = useMemo(() => {
