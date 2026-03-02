@@ -76,7 +76,7 @@ function ReceiptCropView({imageUri, onCropChange, initialCrop, isAuthTokenRequir
     // On Android, expo-image's onLoad reports Glide-downsampled dimensions, which would make crop coordinates
     // wrong for expo-image-manipulator (which operates on full-resolution images). See AvatarCropModal for the same pattern.
     useEffect(() => {
-        if (!imageUri) {
+        if (!imageUri || isAuthTokenRequired) {
             return;
         }
         ImageSize.getSize(imageUri).then(({width, height, rotation: originalRotation}) => {
@@ -87,7 +87,7 @@ function ReceiptCropView({imageUri, onCropChange, initialCrop, isAuthTokenRequir
                 setImageSize({width, height});
             }
         });
-    }, [imageUri]);
+    }, [imageUri, isAuthTokenRequired]);
 
     // Calculate scale factors to convert display coordinates to image coordinates
     const {scaleX, scaleY, displayWidth, displayHeight, imageOffsetX, imageOffsetY} = useMemo(() => {
@@ -253,12 +253,21 @@ function ReceiptCropView({imageUri, onCropChange, initialCrop, isAuthTokenRequir
         [containerWidthSV, containerHeightSV],
     );
 
-    const onImageLoad = useCallback(() => {
-        if (hasImageDimensions) {
-            return;
-        }
-        setHasImageDimensions(true);
-    }, [hasImageDimensions]);
+    const onImageLoad = useCallback(
+        (event: {nativeEvent: {width: number; height: number}}) => {
+            const {width, height} = event.nativeEvent;
+            if (!width || !height || (imageSize.width === width && imageSize.height === height)) {
+                return;
+            }
+            if (!hasImageDimensions) {
+                setHasImageDimensions(true);
+            }
+            if (!imageSize.width && !imageSize.height) {
+                setImageSize({width, height});
+            }
+        },
+        [hasImageDimensions, imageSize.width, imageSize.height],
+    );
 
     /**
      * Clamp a value between min and max
